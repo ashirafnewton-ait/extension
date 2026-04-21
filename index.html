@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surf Voice Sandbox</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #0a0f0f;
+        }
+        #status {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            color: #00ff9d;
+            font-family: monospace;
+            font-size: 12px;
+            opacity: 0.5;
+        }
+    </style>
+    <!-- Libraries hosted on same domain -->
+    <script src="socket.io.min.js"></script>
+    <script src="mediasoup-client.bundle.js"></script>
+</head>
+<body>
+    <div id="status">⚡ Sandbox Ready</div>
+    <script src="webrtc-handler.js"></script>
+</body>
+</html>
