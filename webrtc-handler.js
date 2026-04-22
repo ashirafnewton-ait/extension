@@ -1,6 +1,7 @@
 'use strict';
 
 const GATEWAY_URL = 'https://surf-gateway.onrender.com';
+const SERVICE_PIN = 'ndu2026';
 
 let socket = null;
 let device = null;
@@ -17,6 +18,7 @@ let authToken = null;
 let userId = null;
 let sessionId = null;
 let isAuthenticated = false;
+let authPending = false;
 
 // VAD settings
 let isSpeaking = false;
@@ -48,31 +50,6 @@ function log(message, type = 'info') {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// AUTHENTICATION
-// ═══════════════════════════════════════════════════════════════════
-
-function authenticateWithGateway() {
-    if (!socket || !authToken) {
-        log('Cannot authenticate: missing socket or token', 'error');
-        return;
-    }
-    
-    socket.emit('authenticate', { token: authToken }, (response) => {
-        if (response?.success) {
-            userId = response.user_id;
-            sessionId = response.session_id;
-            isAuthenticated = true;
-            log(`✅ Authenticated as ${userId.slice(0, 8)}...`, 'success');
-            updateStatus(`Auth: ${userId.slice(0, 8)}...`);
-            postMessage({ type: 'auth_success', userId: userId, sessionId: sessionId });
-        } else {
-            log('❌ Auth failed: ' + (response?.error || 'Unknown error'), 'error');
-            postMessage({ type: 'auth_error', error: response?.error });
-        }
-    });
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // TTS PLAYBACK
 // ═══════════════════════════════════════════════════════════════════
 
@@ -88,13 +65,13 @@ function playTTSAudio(encodedAudio) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
         }
-        
+
         const blob = new Blob([bytes], { type: 'audio/mp3' });
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         audio.onended = () => URL.revokeObjectURL(url);
         audio.play();
-        
+
         postMessage({ type: 'tts_playing' });
     } catch (e) {
         log('TTS error: ' + e.message, 'error');
@@ -112,16 +89,16 @@ function startVAD(stream) {
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 64;
     source.connect(analyser);
-    
+
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    
+
     function checkAudio() {
         if (!isConnected) return;
-        
+
         analyser.getByteFrequencyData(dataArray);
         const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
         const isTalking = average > 10;
-        
+
         if (isTalking && !isSpeaking) {
             isSpeaking = true;
             postMessage({ type: 'vad', speaking: true });
@@ -139,10 +116,10 @@ function startVAD(stream) {
                 }, SILENCE_THRESHOLD * 1000);
             }
         }
-        
+
         requestAnimationFrame(checkAudio);
     }
-    
+
     checkAudio();
 }
 
@@ -164,7 +141,7 @@ function stopVAD() {
 
 function sendAccumulatedAudio() {
     if (audioBuffer.length === 0) return;
-    
+
     const blob = new Blob(audioBuffer, { type: 'audio/webm' });
     sendChunkToREST(blob);
     audioBuffer = [];
@@ -175,19 +152,19 @@ async function sendChunkToREST(audioBlob) {
     const formData = new FormData();
     formData.append('audio', audioBlob, 'chunk.webm');
     formData.append('voice', 'en-US-AriaNeural');
-    
-    const headers = { 'x-pin': SERVICE_PIN };
+
+    const headers = {};
     if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
     }
-    
+
     try {
         const res = await fetch(`${GATEWAY_URL}/voice`, {
             method: 'POST',
             headers: headers,
             body: formData
         });
-        
+
         const data = await res.json();
         if (data.transcript) {
             log('📝 ' + data.transcript);
@@ -207,23 +184,23 @@ async function sendChunkToREST(audioBlob) {
 
 function startRESTRecording(stream) {
     audioBuffer = [];
-    
+
     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-    
+
     mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
             audioBuffer.push(e.data);
         }
     };
-    
+
     mediaRecorder.start(1000);
-    
+
     chunkInterval = setInterval(() => {
         if (mediaRecorder && mediaRecorder.state === 'recording') {
             mediaRecorder.requestData();
         }
     }, 1000);
-    
+
     startVAD(stream);
 }
 
@@ -241,19 +218,80 @@ function stopRESTRecording() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MEDIASOUP WEBRTC (SFU Mode)
+// MEDIASOUP WEBRTC (SFU Mode) - FIXED AUTHENTICATION FLOW
 // ═══════════════════════════════════════════════════════════════════
+
+async function setupWebRTC() {
+    try {
+        // Get router capabilities
+        const caps = await requestRouterCapabilities();
+        device = new mediasoupClient.Device();
+        await device.load({ routerRtpCapabilities: caps });
+        log('📡 SFU ready', 'success');
+
+        // Get microphone
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        log('🎤 Mic: ' + localStream.getAudioTracks()[0].label);
+
+        // Create producer transport
+        const transportInfo = await createProducerTransport();
+        producerTransport = device.createSendTransport({
+            id: transportInfo.id,
+            iceParameters: transportInfo.iceParameters,
+            iceCandidates: transportInfo.iceCandidates,
+            dtlsParameters: transportInfo.dtlsParameters
+        });
+
+        producerTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+            socket.emit('connectProducerTransport', { dtlsParameters }, (res) => {
+                if (res?.error) errback(new Error(res.error));
+                else callback();
+            });
+        });
+
+        producerTransport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
+            socket.emit('produce', { kind, rtpParameters }, (res) => {
+                if (res?.error) errback(new Error(res.error));
+                else callback({ id: res.id });
+            });
+        });
+
+        producerTransport.on('connectionstatechange', (state) => {
+            log('Transport: ' + state);
+            if (state === 'connected') {
+                updateStatus('SFU Streaming');
+                postMessage({ type: 'streaming', mode: 'sfu' });
+            }
+        });
+
+        // Produce audio
+        audioProducer = await producerTransport.produce({
+            track: localStream.getAudioTracks()[0],
+            codecOptions: { opusStereo: false, opusDtx: true, opusFec: true }
+        });
+
+        log('🎤 Producer created', 'success');
+        isConnected = true;
+
+    } catch (e) {
+        log('SFU failed: ' + e.message, 'error');
+        updateStatus('Falling back to REST');
+        await startRESTMode();
+    }
+}
 
 async function requestRouterCapabilities() {
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Timeout')), 10000);
-        
+
         socket.on('routerRtpCapabilities', (caps) => {
             clearTimeout(timeout);
             if (caps?.error) reject(new Error(caps.error));
             else resolve(caps);
         });
-        
+
         socket.emit('getRouterRtpCapabilities');
     });
 }
@@ -268,93 +306,65 @@ async function createProducerTransport() {
 }
 
 async function connectMediasoup() {
+    if (!authToken) {
+        log('❌ Cannot connect: No auth token', 'error');
+        updateStatus('No auth token');
+        postMessage({ type: 'error', message: 'No authentication token' });
+        return;
+    }
+
     socket = io(GATEWAY_URL, { transports: ['websocket'] });
-    
-    socket.on('connect', async () => {
+
+    socket.on('connect', () => {
         log('✅ Gateway connected', 'success');
         updateStatus('Gateway Connected');
         
-        // Authenticate if token available
-        if (authToken) {
-            authenticateWithGateway();
-        }
+        // ✅ Send authentication FIRST
+        log('🔐 Authenticating...', 'info');
+        authPending = true;
+        socket.emit('authenticate', { token: authToken });
+    });
+
+    // ✅ Handle authentication response
+    socket.on('authenticated', (response) => {
+        authPending = false;
         
-        try {
-            // Get router capabilities
-            const caps = await requestRouterCapabilities();
-            device = new mediasoupClient.Device();
-            await device.load({ routerRtpCapabilities: caps });
-            log('📡 SFU ready', 'success');
+        if (response?.success) {
+            userId = response.user_id;
+            sessionId = response.session_id;
+            isAuthenticated = true;
+            log(`✅ Authenticated as ${userId.slice(0, 8)}...`, 'success');
+            updateStatus(`Auth: ${userId.slice(0, 8)}...`);
+            postMessage({ type: 'auth_success', userId: userId, sessionId: sessionId });
             
-            // Get microphone
-            localStream = await navigator.mediaDevices.getUserMedia({
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-            });
-            log('🎤 Mic: ' + localStream.getAudioTracks()[0].label);
-            
-            // Create producer transport
-            const transportInfo = await createProducerTransport();
-            producerTransport = device.createSendTransport({
-                id: transportInfo.id,
-                iceParameters: transportInfo.iceParameters,
-                iceCandidates: transportInfo.iceCandidates,
-                dtlsParameters: transportInfo.dtlsParameters
-            });
-            
-            producerTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
-                socket.emit('connectProducerTransport', { dtlsParameters }, (res) => {
-                    if (res?.error) errback(new Error(res.error));
-                    else callback();
-                });
-            });
-            
-            producerTransport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
-                socket.emit('produce', { kind, rtpParameters }, (res) => {
-                    if (res?.error) errback(new Error(res.error));
-                    else callback({ id: res.id });
-                });
-            });
-            
-            producerTransport.on('connectionstatechange', (state) => {
-                log('Transport: ' + state);
-                if (state === 'connected') {
-                    updateStatus('SFU Streaming');
-                    postMessage({ type: 'streaming', mode: 'sfu' });
-                }
-            });
-            
-            // Produce audio
-            audioProducer = await producerTransport.produce({
-                track: localStream.getAudioTracks()[0],
-                codecOptions: { opusStereo: false, opusDtx: true, opusFec: true }
-            });
-            
-            log('🎤 Producer created', 'success');
-            isConnected = true;
-            
-        } catch (e) {
-            log('SFU failed: ' + e.message, 'error');
-            updateStatus('Falling back to REST');
-            await startRESTMode();
+            // ✅ NOW set up WebRTC (after auth succeeds)
+            setupWebRTC();
+        } else {
+            log('❌ Auth failed: ' + (response?.error || 'Unknown error'), 'error');
+            updateStatus('Auth Failed');
+            postMessage({ type: 'auth_error', error: response?.error });
+            socket.disconnect();
         }
     });
-    
+
     socket.on('connect_error', (e) => {
         log('Connection error: ' + e.message, 'error');
-        updateStatus('REST Mode');
-        startRESTMode();
+        updateStatus('Connection Error');
+        postMessage({ type: 'error', message: e.message });
     });
-    
+
     socket.on('tts_audio', (data) => {
         if (data?.audio) playTTSAudio(data.audio);
         if (data?.transcript) postMessage({ type: 'transcript', text: data.transcript });
         if (data?.response) postMessage({ type: 'response', text: data.response });
     });
-    
+
     socket.on('disconnect', () => {
         log('Gateway disconnected', 'info');
         isConnected = false;
+        isAuthenticated = false;
         updateStatus('Disconnected');
+        postMessage({ type: 'disconnected' });
     });
 }
 
@@ -363,12 +373,12 @@ async function startRESTMode() {
         localStream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
-        
+
         startRESTRecording(localStream);
         isConnected = true;
         updateStatus('REST Recording');
         postMessage({ type: 'streaming', mode: 'rest' });
-        
+
         log('🎤 REST mode active', 'success');
     } catch (e) {
         log('REST mode failed: ' + e.message, 'error');
@@ -378,7 +388,9 @@ async function startRESTMode() {
 
 function disconnect() {
     isConnected = false;
-    
+    isAuthenticated = false;
+    authPending = false;
+
     if (audioProducer) {
         audioProducer.close();
         audioProducer = null;
@@ -391,14 +403,14 @@ function disconnect() {
         socket.disconnect();
         socket = null;
     }
-    
+
     stopRESTRecording();
-    
+
     if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
         localStream = null;
     }
-    
+
     device = null;
     updateStatus('Ready');
     postMessage({ type: 'disconnected' });
@@ -410,16 +422,11 @@ function disconnect() {
 
 window.addEventListener('message', (event) => {
     const msg = event.data;
-    
+
     if (msg.type === 'auth_token') {
         authToken = msg.token;
         log('🔐 Auth token received');
         postMessage({ type: 'token_received' });
-        
-        // If already connected, authenticate now
-        if (socket && socket.connected) {
-            authenticateWithGateway();
-        }
     } else if (msg.type === 'start_mic') {
         log('Starting mic...');
         connectMediasoup();
