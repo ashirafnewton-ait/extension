@@ -18,6 +18,8 @@ let userId = null;
 let sessionId = null;
 let isAuthenticated = false;
 let authPending = false;
+let reconnectTimer = null;
+let pingInterval = null;
 
 // VAD settings
 let isSpeaking = false;
@@ -39,13 +41,34 @@ function postMessage(data) {
 }
 
 function updateStatus(text) {
-    document.getElementById('status').textContent = `⚡ ${text}`;
+    const statusEl = document.getElementById('status');
+    if (statusEl) statusEl.textContent = `⚡ ${text}`;
     postMessage({ type: 'status', text: text });
 }
 
 function log(message, type = 'info') {
     console.log(`[Sandbox] ${message}`);
     postMessage({ type: 'log', level: type, message: message });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SOCKET KEEP-ALIVE
+// ═══════════════════════════════════════════════════════════════════
+
+function startKeepAlive() {
+    if (pingInterval) clearInterval(pingInterval);
+    pingInterval = setInterval(() => {
+        if (socket && socket.connected) {
+            socket.emit('ping');
+        }
+    }, 20000); // Every 20 seconds
+}
+
+function stopKeepAlive() {
+    if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -152,7 +175,6 @@ async function sendChunkToREST(audioBlob) {
     formData.append('audio', audioBlob, 'chunk.webm');
     formData.append('voice', 'en-US-AriaNeural');
 
-    // ✅ JWT-only authentication - NO PIN
     const headers = {};
     if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
@@ -223,19 +245,16 @@ function stopRESTRecording() {
 
 async function setupWebRTC() {
     try {
-        // Get router capabilities
         const caps = await requestRouterCapabilities();
         device = new mediasoupClient.Device();
         await device.load({ routerRtpCapabilities: caps });
         log('📡 SFU ready', 'success');
 
-        // Get microphone
         localStream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
         log('🎤 Mic: ' + localStream.getAudioTracks()[0].label);
 
-        // Create producer transport
         const transportInfo = await createProducerTransport();
         producerTransport = device.createSendTransport({
             id: transportInfo.id,
@@ -266,7 +285,6 @@ async function setupWebRTC() {
             }
         });
 
-        // Produce audio
         audioProducer = await producerTransport.produce({
             track: localStream.getAudioTracks()[0],
             codecOptions: { opusStereo: false, opusDtx: true, opusFec: true }
@@ -306,7 +324,12 @@ async function createProducerTransport() {
 }
 
 async function connectMediasoup() {
-    // ✅ Check token FIRST
+    // ✅ Cancel any pending reconnect
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+
     if (!authToken) {
         log('❌ Cannot connect: No auth token', 'error');
         updateStatus('No auth token');
@@ -314,23 +337,49 @@ async function connectMediasoup() {
         return;
     }
 
-    log(`🔑 Using token: ${authToken.substring(0, 20)}...`);
-    socket = io(GATEWAY_URL, { transports: ['websocket'] });
+    // ✅ REUSE EXISTING SOCKET if connected
+    if (socket && socket.connected) {
+        log('✅ Reusing existing socket', 'success');
+        
+        if (!isAuthenticated) {
+            log('🔐 Authenticating existing socket...', 'info');
+            authPending = true;
+            socket.emit('authenticate', { token: authToken });
+        } else {
+            log('✅ Already authenticated, setting up WebRTC...', 'success');
+            setupWebRTC();
+        }
+        return;
+    }
+
+    // ✅ Create new socket only if needed
+    log('📡 Creating new socket connection...', 'info');
+    
+    // Clean up old socket if exists
+    if (socket) {
+        socket.removeAllListeners();
+        socket.disconnect();
+    }
+
+    socket = io(GATEWAY_URL, { 
+        transports: ['websocket'],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000
+    });
 
     socket.on('connect', () => {
         log('✅ Gateway connected', 'success');
         updateStatus('Gateway Connected');
+        startKeepAlive();
         
-        // ✅ Send authentication FIRST
-        log('🔐 Sending authenticate event...', 'info');
+        log('🔐 Authenticating...', 'info');
         authPending = true;
         socket.emit('authenticate', { token: authToken });
     });
 
-    // ✅ Handle authentication response
     socket.on('authenticated', (response) => {
         authPending = false;
-        log(`📨 Auth response: ${JSON.stringify(response)}`);
         
         if (response?.success) {
             userId = response.user_id;
@@ -340,13 +389,11 @@ async function connectMediasoup() {
             updateStatus(`Auth: ${userId.slice(0, 8)}...`);
             postMessage({ type: 'auth_success', userId: userId, sessionId: sessionId });
             
-            // ✅ NOW set up WebRTC (after auth succeeds)
             setupWebRTC();
         } else {
             log('❌ Auth failed: ' + (response?.error || 'Unknown error'), 'error');
             updateStatus('Auth Failed');
             postMessage({ type: 'auth_error', error: response?.error });
-            socket.disconnect();
         }
     });
 
@@ -356,18 +403,25 @@ async function connectMediasoup() {
         postMessage({ type: 'error', message: e.message });
     });
 
+    socket.on('disconnect', (reason) => {
+        log('Gateway disconnected: ' + reason, 'info');
+        isConnected = false;
+        isAuthenticated = false;
+        stopKeepAlive();
+        updateStatus('Disconnected');
+        postMessage({ type: 'disconnected' });
+        
+        // ✅ Auto-reconnect after 2 seconds
+        if (authToken) {
+            log('🔄 Will reconnect in 2s...', 'info');
+            reconnectTimer = setTimeout(() => connectMediasoup(), 2000);
+        }
+    });
+
     socket.on('tts_audio', (data) => {
         if (data?.audio) playTTSAudio(data.audio);
         if (data?.transcript) postMessage({ type: 'transcript', text: data.transcript });
         if (data?.response) postMessage({ type: 'response', text: data.response });
-    });
-
-    socket.on('disconnect', () => {
-        log('Gateway disconnected', 'info');
-        isConnected = false;
-        isAuthenticated = false;
-        updateStatus('Disconnected');
-        postMessage({ type: 'disconnected' });
     });
 }
 
@@ -394,6 +448,13 @@ function disconnect() {
     isAuthenticated = false;
     authPending = false;
 
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    
+    stopKeepAlive();
+
     if (audioProducer) {
         audioProducer.close();
         audioProducer = null;
@@ -403,6 +464,7 @@ function disconnect() {
         producerTransport = null;
     }
     if (socket) {
+        socket.removeAllListeners();
         socket.disconnect();
         socket = null;
     }
@@ -425,18 +487,15 @@ function disconnect() {
 
 window.addEventListener('message', (event) => {
     const msg = event.data;
-    log(`📨 Received message: ${msg.type}`);
 
     if (msg.type === 'auth_token') {
         authToken = msg.token;
-        log(`🔐 Auth token received (${authToken.substring(0, 20)}...)`);
+        log('🔐 Auth token received');
         postMessage({ type: 'token_received' });
         
         // Expose for debugging
         window.authToken = authToken;
-        window.socket = socket;
     } else if (msg.type === 'start_mic') {
-        // ✅ CHECK TOKEN FIRST
         if (!authToken) {
             log('❌ No auth token - request auth first', 'error');
             postMessage({ type: 'error', message: 'No authentication token' });
@@ -464,5 +523,4 @@ window.authToken = authToken;
 window.socket = socket;
 window.debug = { log, postMessage, connectMediasoup, disconnect };
 
-// Notify extension that sandbox is loaded
 postMessage({ type: 'sandbox_ready' });
