@@ -1,7 +1,6 @@
 'use strict';
 
 const GATEWAY_URL = 'https://surf-gateway.onrender.com';
-const SERVICE_PIN = 'ndu2026';
 
 let socket = null;
 let device = null;
@@ -153,6 +152,7 @@ async function sendChunkToREST(audioBlob) {
     formData.append('audio', audioBlob, 'chunk.webm');
     formData.append('voice', 'en-US-AriaNeural');
 
+    // ✅ JWT-only authentication - NO PIN
     const headers = {};
     if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
@@ -218,7 +218,7 @@ function stopRESTRecording() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MEDIASOUP WEBRTC (SFU Mode) - FIXED AUTHENTICATION FLOW
+// MEDIASOUP WEBRTC (SFU Mode)
 // ═══════════════════════════════════════════════════════════════════
 
 async function setupWebRTC() {
