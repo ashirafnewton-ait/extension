@@ -306,6 +306,7 @@ async function createProducerTransport() {
 }
 
 async function connectMediasoup() {
+    // ✅ Check token FIRST
     if (!authToken) {
         log('❌ Cannot connect: No auth token', 'error');
         updateStatus('No auth token');
@@ -313,6 +314,7 @@ async function connectMediasoup() {
         return;
     }
 
+    log(`🔑 Using token: ${authToken.substring(0, 20)}...`);
     socket = io(GATEWAY_URL, { transports: ['websocket'] });
 
     socket.on('connect', () => {
@@ -320,7 +322,7 @@ async function connectMediasoup() {
         updateStatus('Gateway Connected');
         
         // ✅ Send authentication FIRST
-        log('🔐 Authenticating...', 'info');
+        log('🔐 Sending authenticate event...', 'info');
         authPending = true;
         socket.emit('authenticate', { token: authToken });
     });
@@ -328,6 +330,7 @@ async function connectMediasoup() {
     // ✅ Handle authentication response
     socket.on('authenticated', (response) => {
         authPending = false;
+        log(`📨 Auth response: ${JSON.stringify(response)}`);
         
         if (response?.success) {
             userId = response.user_id;
@@ -422,12 +425,23 @@ function disconnect() {
 
 window.addEventListener('message', (event) => {
     const msg = event.data;
+    log(`📨 Received message: ${msg.type}`);
 
     if (msg.type === 'auth_token') {
         authToken = msg.token;
-        log('🔐 Auth token received');
+        log(`🔐 Auth token received (${authToken.substring(0, 20)}...)`);
         postMessage({ type: 'token_received' });
+        
+        // Expose for debugging
+        window.authToken = authToken;
+        window.socket = socket;
     } else if (msg.type === 'start_mic') {
+        // ✅ CHECK TOKEN FIRST
+        if (!authToken) {
+            log('❌ No auth token - request auth first', 'error');
+            postMessage({ type: 'error', message: 'No authentication token' });
+            return;
+        }
         log('Starting mic...');
         connectMediasoup();
     } else if (msg.type === 'stop_mic') {
@@ -444,6 +458,11 @@ window.addEventListener('message', (event) => {
 
 log('Sandbox ready');
 updateStatus('Ready');
+
+// Expose for debugging
+window.authToken = authToken;
+window.socket = socket;
+window.debug = { log, postMessage, connectMediasoup, disconnect };
 
 // Notify extension that sandbox is loaded
 postMessage({ type: 'sandbox_ready' });
