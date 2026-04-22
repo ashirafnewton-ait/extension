@@ -1,7 +1,6 @@
 'use strict';
 
 const GATEWAY_URL = 'https://surf-gateway.onrender.com';
-const SERVICE_PIN = 'ndu2026';
 
 let socket = null;
 let device = null;
