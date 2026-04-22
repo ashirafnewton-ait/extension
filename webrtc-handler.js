@@ -13,6 +13,12 @@ let mediaRecorder = null;
 let chunkInterval = null;
 let audioBuffer = [];
 
+// Auth state
+let authToken = null;
+let userId = null;
+let sessionId = null;
+let isAuthenticated = false;
+
 // VAD settings
 let isSpeaking = false;
 let silenceTimer = null;
@@ -40,6 +46,31 @@ function updateStatus(text) {
 function log(message, type = 'info') {
     console.log(`[Sandbox] ${message}`);
     postMessage({ type: 'log', level: type, message: message });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AUTHENTICATION
+// ═══════════════════════════════════════════════════════════════════
+
+function authenticateWithGateway() {
+    if (!socket || !authToken) {
+        log('Cannot authenticate: missing socket or token', 'error');
+        return;
+    }
+    
+    socket.emit('authenticate', { token: authToken }, (response) => {
+        if (response?.success) {
+            userId = response.user_id;
+            sessionId = response.session_id;
+            isAuthenticated = true;
+            log(`✅ Authenticated as ${userId.slice(0, 8)}...`, 'success');
+            updateStatus(`Auth: ${userId.slice(0, 8)}...`);
+            postMessage({ type: 'auth_success', userId: userId, sessionId: sessionId });
+        } else {
+            log('❌ Auth failed: ' + (response?.error || 'Unknown error'), 'error');
+            postMessage({ type: 'auth_error', error: response?.error });
+        }
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -146,10 +177,15 @@ async function sendChunkToREST(audioBlob) {
     formData.append('audio', audioBlob, 'chunk.webm');
     formData.append('voice', 'en-US-AriaNeural');
     
+    const headers = { 'x-pin': SERVICE_PIN };
+    if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    
     try {
         const res = await fetch(`${GATEWAY_URL}/voice`, {
             method: 'POST',
-            headers: { 'x-pin': SERVICE_PIN },
+            headers: headers,
             body: formData
         });
         
@@ -239,6 +275,11 @@ async function connectMediasoup() {
         log('✅ Gateway connected', 'success');
         updateStatus('Gateway Connected');
         
+        // Authenticate if token available
+        if (authToken) {
+            authenticateWithGateway();
+        }
+        
         try {
             // Get router capabilities
             const caps = await requestRouterCapabilities();
@@ -295,7 +336,6 @@ async function connectMediasoup() {
         } catch (e) {
             log('SFU failed: ' + e.message, 'error');
             updateStatus('Falling back to REST');
-            // Fallback to REST mode
             await startRESTMode();
         }
     });
@@ -340,7 +380,6 @@ async function startRESTMode() {
 function disconnect() {
     isConnected = false;
     
-    // Stop SFU
     if (audioProducer) {
         audioProducer.close();
         audioProducer = null;
@@ -354,7 +393,6 @@ function disconnect() {
         socket = null;
     }
     
-    // Stop REST
     stopRESTRecording();
     
     if (localStream) {
@@ -374,7 +412,16 @@ function disconnect() {
 window.addEventListener('message', (event) => {
     const msg = event.data;
     
-    if (msg.type === 'start_mic') {
+    if (msg.type === 'auth_token') {
+        authToken = msg.token;
+        log('🔐 Auth token received');
+        postMessage({ type: 'token_received' });
+        
+        // If already connected, authenticate now
+        if (socket && socket.connected) {
+            authenticateWithGateway();
+        }
+    } else if (msg.type === 'start_mic') {
         log('Starting mic...');
         connectMediasoup();
     } else if (msg.type === 'stop_mic') {
