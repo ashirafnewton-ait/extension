@@ -31,6 +31,10 @@ let audioContext = null;
 let analyser = null;
 let vadReady = false;
 
+// TTS Queue
+let ttsQueue = [];
+let isPlaying = false;
+
 // ═══════════════════════════════════════════════════════════════════
 // POST MESSAGE TO EXTENSION
 // ═══════════════════════════════════════════════════════════════════
@@ -60,7 +64,6 @@ async function loadSileroVAD() {
     try {
         log('📦 Loading Silero VAD model...', 'info');
         
-        // Load ONNX runtime if not already available
         if (!window.ort) {
             const ortModule = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/esm/ort.min.js');
             ort = ortModule.default || ortModule;
@@ -68,7 +71,6 @@ async function loadSileroVAD() {
             ort = window.ort;
         }
         
-        // Load model from same origin
         vadSession = await ort.InferenceSession.create('./silero_vad.onnx', {
             executionProviders: ['wasm', 'cpu']
         });
@@ -87,17 +89,14 @@ async function detectSpeechWithSilero(audioChunk) {
     if (!vadSession || !vadReady) return null;
     
     try {
-        // Convert audio chunk to float32 array
         const float32Data = new Float32Array(audioChunk.length);
         for (let i = 0; i < audioChunk.length; i++) {
             float32Data[i] = (audioChunk[i] - 128) / 128.0;
         }
         
-        // Create tensor and run inference
         const tensor = new ort.Tensor('float32', float32Data, [1, float32Data.length]);
         const results = await vadSession.run({ input: tensor });
         
-        // Get speech probability
         const probability = results.output.data[0];
         return probability > 0.5;
     } catch (e) {
@@ -127,10 +126,22 @@ function stopKeepAlive() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// TTS PLAYBACK
+// TTS QUEUE (Prevents overlapping audio)
 // ═══════════════════════════════════════════════════════════════════
 
 function playTTSAudio(encodedAudio) {
+    return new Promise((resolve) => {
+        ttsQueue.push({ encodedAudio, resolve });
+        processTTSQueue();
+    });
+}
+
+async function processTTSQueue() {
+    if (isPlaying || ttsQueue.length === 0) return;
+    
+    isPlaying = true;
+    const { encodedAudio, resolve } = ttsQueue.shift();
+    
     try {
         let bytes;
         if (encodedAudio.match(/^[0-9a-f]+$/i)) {
@@ -146,12 +157,28 @@ function playTTSAudio(encodedAudio) {
         const blob = new Blob([bytes], { type: 'audio/mp3' });
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
-        audio.onended = () => URL.revokeObjectURL(url);
-        audio.play();
-
+        
+        audio.onended = () => {
+            URL.revokeObjectURL(url);
+            isPlaying = false;
+            if (resolve) resolve();
+            processTTSQueue();
+        };
+        
+        audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            isPlaying = false;
+            if (resolve) resolve();
+            processTTSQueue();
+        };
+        
+        await audio.play();
         postMessage({ type: 'tts_playing' });
     } catch (e) {
         log('TTS error: ' + e.message, 'error');
+        isPlaying = false;
+        if (resolve) resolve();
+        processTTSQueue();
     }
 }
 
@@ -164,7 +191,7 @@ function startVAD(stream) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(stream);
     analyser = audioContext.createAnalyser();
-    analyser.fftSize = 512; // Larger for better resolution
+    analyser.fftSize = 512;
     source.connect(analyser);
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -174,19 +201,16 @@ function startVAD(stream) {
 
         analyser.getByteTimeDomainData(dataArray);
         
-        // Try Silero first
         let isTalking = false;
         if (vadReady) {
             const result = await detectSpeechWithSilero(dataArray);
             if (result !== null) {
                 isTalking = result;
             } else {
-                // Fallback to simple threshold
                 const average = dataArray.reduce((a, b) => a + Math.abs(b - 128), 0) / dataArray.length;
                 isTalking = average > 10;
             }
         } else {
-            // Simple threshold fallback
             const average = dataArray.reduce((a, b) => a + Math.abs(b - 128), 0) / dataArray.length;
             isTalking = average > 10;
         }
@@ -325,7 +349,6 @@ async function setupWebRTC() {
         });
         log('🎤 Mic: ' + localStream.getAudioTracks()[0].label);
         
-        // Start VAD for SFU mode
         startVAD(localStream);
 
         const transportInfo = await createProducerTransport();
@@ -397,7 +420,6 @@ async function createProducerTransport() {
 }
 
 async function connectMediasoup() {
-    // Cancel any pending reconnect
     if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -410,7 +432,6 @@ async function connectMediasoup() {
         return;
     }
 
-    // REUSE EXISTING SOCKET if connected
     if (socket && socket.connected) {
         log('✅ Reusing existing socket', 'success');
         
@@ -425,10 +446,8 @@ async function connectMediasoup() {
         return;
     }
 
-    // Create new socket only if needed
     log('📡 Creating new socket connection...', 'info');
     
-    // Clean up old socket if exists
     if (socket) {
         socket.removeAllListeners();
         socket.disconnect();
@@ -484,7 +503,6 @@ async function connectMediasoup() {
         updateStatus('Disconnected');
         postMessage({ type: 'disconnected' });
         
-        // Auto-reconnect after 2 seconds
         if (authToken) {
             log('🔄 Will reconnect in 2s...', 'info');
             reconnectTimer = setTimeout(() => connectMediasoup(), 2000);
@@ -591,10 +609,8 @@ async function init() {
     log('Sandbox ready');
     updateStatus('Ready');
     
-    // Load Silero VAD
     await loadSileroVAD();
     
-    // Expose for debugging
     window.authToken = authToken;
     window.socket = socket;
     window.debug = { log, postMessage, connectMediasoup, disconnect };
