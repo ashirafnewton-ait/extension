@@ -13,7 +13,6 @@ import {
     isTokenValid,
     refreshAuthToken
 } from './rest-client.js';
-import { disconnectWebRTC, isWebRTCConnected } from './webrtc-client.js';
 import {
     postMessage,
     sendStatus,
@@ -63,8 +62,6 @@ async function handleTTS(audioBase64) {
 
 async function startRESTMode() {
     try {
-        disconnectWebRTC();
-
         if (!localStream) {
             localStream = await navigator.mediaDevices.getUserMedia({
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -165,7 +162,6 @@ function stopMic() {
     isActive = false;
     startMicInProgress = false;
 
-    disconnectWebRTC();
     stopRESTRecording();
     stopVAD();
     clearTTSQueue();
@@ -320,8 +316,7 @@ async function init() {
         getStatus: () => ({
             isActive,
             currentMode,
-            vadReady: isVADReady(),
-            webrtcConnected: isWebRTCConnected()
+            vadReady: isVADReady()
         }),
         refreshToken: refreshAuthToken,
         resetState: () => {
