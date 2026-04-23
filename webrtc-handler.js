@@ -21,14 +21,15 @@ let authPending = false;
 let reconnectTimer = null;
 let pingInterval = null;
 
-// VAD settings
+// Silero VAD
+let vadSession = null;
+let ort = null;
 let isSpeaking = false;
 let silenceTimer = null;
 const SILENCE_THRESHOLD = 1.5;
-
-// Audio context for VAD
 let audioContext = null;
 let analyser = null;
+let vadReady = false;
 
 // ═══════════════════════════════════════════════════════════════════
 // POST MESSAGE TO EXTENSION
@@ -52,6 +53,60 @@ function log(message, type = 'info') {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// SILERO VAD (ONNX)
+// ═══════════════════════════════════════════════════════════════════
+
+async function loadSileroVAD() {
+    try {
+        log('📦 Loading Silero VAD model...', 'info');
+        
+        // Load ONNX runtime if not already available
+        if (!window.ort) {
+            const ortModule = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/esm/ort.min.js');
+            ort = ortModule.default || ortModule;
+        } else {
+            ort = window.ort;
+        }
+        
+        // Load model from same origin
+        vadSession = await ort.InferenceSession.create('./silero_vad.onnx', {
+            executionProviders: ['wasm', 'cpu']
+        });
+        
+        vadReady = true;
+        log('✅ Silero VAD loaded', 'success');
+        return true;
+    } catch (e) {
+        log('⚠️ Silero VAD failed, using fallback: ' + e.message, 'warn');
+        vadReady = false;
+        return false;
+    }
+}
+
+async function detectSpeechWithSilero(audioChunk) {
+    if (!vadSession || !vadReady) return null;
+    
+    try {
+        // Convert audio chunk to float32 array
+        const float32Data = new Float32Array(audioChunk.length);
+        for (let i = 0; i < audioChunk.length; i++) {
+            float32Data[i] = (audioChunk[i] - 128) / 128.0;
+        }
+        
+        // Create tensor and run inference
+        const tensor = new ort.Tensor('float32', float32Data, [1, float32Data.length]);
+        const results = await vadSession.run({ input: tensor });
+        
+        // Get speech probability
+        const probability = results.output.data[0];
+        return probability > 0.5;
+    } catch (e) {
+        console.warn('[VAD] Silero inference error:', e);
+        return null;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SOCKET KEEP-ALIVE
 // ═══════════════════════════════════════════════════════════════════
 
@@ -61,7 +116,7 @@ function startKeepAlive() {
         if (socket && socket.connected) {
             socket.emit('ping');
         }
-    }, 20000); // Every 20 seconds
+    }, 20000);
 }
 
 function stopKeepAlive() {
@@ -101,7 +156,7 @@ function playTTSAudio(encodedAudio) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// VAD (Voice Activity Detection)
+// VAD (Voice Activity Detection) - Uses Silero with fallback
 // ═══════════════════════════════════════════════════════════════════
 
 function startVAD(stream) {
@@ -109,17 +164,32 @@ function startVAD(stream) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(stream);
     analyser = audioContext.createAnalyser();
-    analyser.fftSize = 64;
+    analyser.fftSize = 512; // Larger for better resolution
     source.connect(analyser);
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-    function checkAudio() {
+    async function checkAudio() {
         if (!isConnected) return;
 
-        analyser.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-        const isTalking = average > 10;
+        analyser.getByteTimeDomainData(dataArray);
+        
+        // Try Silero first
+        let isTalking = false;
+        if (vadReady) {
+            const result = await detectSpeechWithSilero(dataArray);
+            if (result !== null) {
+                isTalking = result;
+            } else {
+                // Fallback to simple threshold
+                const average = dataArray.reduce((a, b) => a + Math.abs(b - 128), 0) / dataArray.length;
+                isTalking = average > 10;
+            }
+        } else {
+            // Simple threshold fallback
+            const average = dataArray.reduce((a, b) => a + Math.abs(b - 128), 0) / dataArray.length;
+            isTalking = average > 10;
+        }
 
         if (isTalking && !isSpeaking) {
             isSpeaking = true;
@@ -254,6 +324,9 @@ async function setupWebRTC() {
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
         log('🎤 Mic: ' + localStream.getAudioTracks()[0].label);
+        
+        // Start VAD for SFU mode
+        startVAD(localStream);
 
         const transportInfo = await createProducerTransport();
         producerTransport = device.createSendTransport({
@@ -324,7 +397,7 @@ async function createProducerTransport() {
 }
 
 async function connectMediasoup() {
-    // ✅ Cancel any pending reconnect
+    // Cancel any pending reconnect
     if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -337,7 +410,7 @@ async function connectMediasoup() {
         return;
     }
 
-    // ✅ REUSE EXISTING SOCKET if connected
+    // REUSE EXISTING SOCKET if connected
     if (socket && socket.connected) {
         log('✅ Reusing existing socket', 'success');
         
@@ -352,7 +425,7 @@ async function connectMediasoup() {
         return;
     }
 
-    // ✅ Create new socket only if needed
+    // Create new socket only if needed
     log('📡 Creating new socket connection...', 'info');
     
     // Clean up old socket if exists
@@ -411,7 +484,7 @@ async function connectMediasoup() {
         updateStatus('Disconnected');
         postMessage({ type: 'disconnected' });
         
-        // ✅ Auto-reconnect after 2 seconds
+        // Auto-reconnect after 2 seconds
         if (authToken) {
             log('🔄 Will reconnect in 2s...', 'info');
             reconnectTimer = setTimeout(() => connectMediasoup(), 2000);
@@ -454,6 +527,7 @@ function disconnect() {
     }
     
     stopKeepAlive();
+    stopVAD();
 
     if (audioProducer) {
         audioProducer.close();
@@ -492,8 +566,6 @@ window.addEventListener('message', (event) => {
         authToken = msg.token;
         log('🔐 Auth token received');
         postMessage({ type: 'token_received' });
-        
-        // Expose for debugging
         window.authToken = authToken;
     } else if (msg.type === 'start_mic') {
         if (!authToken) {
@@ -515,12 +587,19 @@ window.addEventListener('message', (event) => {
 // INIT
 // ═══════════════════════════════════════════════════════════════════
 
-log('Sandbox ready');
-updateStatus('Ready');
+async function init() {
+    log('Sandbox ready');
+    updateStatus('Ready');
+    
+    // Load Silero VAD
+    await loadSileroVAD();
+    
+    // Expose for debugging
+    window.authToken = authToken;
+    window.socket = socket;
+    window.debug = { log, postMessage, connectMediasoup, disconnect };
+    
+    postMessage({ type: 'sandbox_ready' });
+}
 
-// Expose for debugging
-window.authToken = authToken;
-window.socket = socket;
-window.debug = { log, postMessage, connectMediasoup, disconnect };
-
-postMessage({ type: 'sandbox_ready' });
+init();
