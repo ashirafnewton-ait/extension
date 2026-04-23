@@ -2,17 +2,20 @@
 // SANDBOX MAIN CONTROLLER
 // ═══════════════════════════════════════════════════════════════════
 
-import { loadSileroVAD, startVAD, stopVAD, isVADReady } from './vad.js';
+import { loadSileroVAD, startVAD, stopVAD, isVADReady, enableDebug } from './vad.js';
 import { playTTSAudio, clearTTSQueue } from './tts.js';
 import { 
     setAuthToken as setRestAuthToken, 
-    setVoice,
+    setVoice as setRestVoice,
     sendAccumulatedAudio, 
     startRESTRecording, 
-    stopRESTRecording 
+    stopRESTRecording,
+    isTokenValid,
+    refreshAuthToken
 } from './rest-client.js';
 import { connectWebRTC, disconnectWebRTC } from './webrtc-client.js';
 import {
+    postMessage,
     sendStatus,
     sendLog,
     sendTranscript,
@@ -184,7 +187,7 @@ function stopMic() {
 
 function setVoice(voice) {
     selectedVoice = voice;
-    setVoice(voice); // Pass to REST client
+    setRestVoice(voice);
     sendLog('Voice: ' + voice, 'info');
 }
 
@@ -200,7 +203,18 @@ async function init() {
     onMessage('start_mic', startMic);
     onMessage('stop_mic', stopMic);
     onMessage('set_voice', (msg) => setVoice(msg.voice));
+    onMessage('enable_vad_debug', () => enableDebug(true));
+    onMessage('disable_vad_debug', () => enableDebug(false));
     onMessage('ping', () => postMessage({ type: 'pong', timestamp: Date.now() }));
+    onMessage('get_status', () => {
+        postMessage({
+            type: 'sandbox_status',
+            isActive,
+            currentMode,
+            vadReady: isVADReady(),
+            tokenValid: isTokenValid()
+        });
+    });
     
     // Set REST auth token when received
     const token = getAuthToken();
@@ -214,7 +228,8 @@ async function init() {
         start: startMic,
         stop: stopMic,
         setVoice: setVoice,
-        getStatus: () => ({ isActive, currentMode, vadReady: isVADReady() })
+        getStatus: () => ({ isActive, currentMode, vadReady: isVADReady() }),
+        refreshToken: refreshAuthToken
     };
 }
 
