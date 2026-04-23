@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// WEBRTC CLIENT MODULE (Mediasoup)
+// WEBRTC CLIENT MODULE (Mediasoup) - FIXED
 // ═══════════════════════════════════════════════════════════════════
 
 const GATEWAY_URL = 'https://surf-gateway.onrender.com';
@@ -12,6 +12,7 @@ let isConnected = false;
 let authToken = null;
 let reconnectTimer = null;
 let pingInterval = null;
+let authTimeout = null;
 
 // Callbacks
 let onStatusChange = null;
@@ -48,7 +49,7 @@ async function requestRouterCapabilities() {
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Timeout')), 10000);
 
-        socket.on('routerRtpCapabilities', (caps) => {
+        socket.once('routerRtpCapabilities', (caps) => {
             clearTimeout(timeout);
             if (caps?.error) reject(new Error(caps.error));
             else resolve(caps);
@@ -69,12 +70,16 @@ async function createProducerTransport() {
 
 async function setupWebRTC(stream) {
     try {
+        if (onLog) onLog('📡 Requesting router capabilities...', 'info');
+        
         const caps = await requestRouterCapabilities();
         device = new mediasoupClient.Device();
         await device.load({ routerRtpCapabilities: caps });
         if (onLog) onLog('📡 SFU ready', 'success');
 
+        if (onLog) onLog('🔗 Creating producer transport...', 'info');
         const transportInfo = await createProducerTransport();
+        
         producerTransport = device.createSendTransport({
             id: transportInfo.id,
             iceParameters: transportInfo.iceParameters,
@@ -83,23 +88,40 @@ async function setupWebRTC(stream) {
         });
 
         producerTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+            if (onLog) onLog('🔗 Connecting transport...', 'info');
             socket.emit('connectProducerTransport', { dtlsParameters }, (res) => {
-                if (res?.error) errback(new Error(res.error));
-                else callback();
+                if (res?.error) {
+                    if (onLog) onLog('Transport connect failed: ' + res.error, 'error');
+                    errback(new Error(res.error));
+                } else {
+                    if (onLog) onLog('✅ Transport connected', 'success');
+                    callback();
+                }
             });
         });
 
         producerTransport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
+            if (onLog) onLog('🎤 Producing audio...', 'info');
             socket.emit('produce', { kind, rtpParameters }, (res) => {
-                if (res?.error) errback(new Error(res.error));
-                else callback({ id: res.id });
+                if (res?.error) {
+                    if (onLog) onLog('Produce failed: ' + res.error, 'error');
+                    errback(new Error(res.error));
+                } else {
+                    if (onLog) onLog('✅ Producer created: ' + res.id?.slice(0, 8) + '...', 'success');
+                    callback({ id: res.id });
+                }
             });
         });
 
         producerTransport.on('connectionstatechange', (state) => {
-            if (onLog) onLog('Transport: ' + state);
+            if (onLog) onLog('Transport state: ' + state, 'info');
             if (state === 'connected') {
-                if (onStatusChange) onStatusChange('SFU Streaming', 'sfu');
+                isConnected = true;
+                if (onStatusChange) onStatusChange('SFU Streaming');
+                if (onLog) onLog('🎉 SFU fully connected!', 'success');
+            }
+            if (state === 'failed' || state === 'closed') {
+                isConnected = false;
             }
         });
 
@@ -108,11 +130,11 @@ async function setupWebRTC(stream) {
             codecOptions: { opusStereo: false, opusDtx: true, opusFec: true }
         });
 
-        if (onLog) onLog('🎤 Producer created', 'success');
+        if (onLog) onLog('🎤 Producer created successfully!', 'success');
         return true;
 
     } catch (e) {
-        if (onLog) onLog('SFU failed: ' + e.message, 'error');
+        if (onLog) onLog('SFU setup failed: ' + e.message, 'error');
         return false;
     }
 }
@@ -133,10 +155,22 @@ async function connectWebRTC(token, stream, callbacks) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
     }
+    
+    if (authTimeout) {
+        clearTimeout(authTimeout);
+        authTimeout = null;
+    }
 
     if (!authToken) {
         if (onLog) onLog('❌ No auth token', 'error');
         return false;
+    }
+
+    // Clean up existing socket
+    if (socket) {
+        socket.removeAllListeners();
+        socket.disconnect();
+        socket = null;
     }
 
     socket = io(GATEWAY_URL, { 
@@ -147,40 +181,77 @@ async function connectWebRTC(token, stream, callbacks) {
     });
 
     return new Promise((resolve) => {
-        socket.on('connect', async () => {
+        let resolved = false;
+        
+        // ✅ FIXED: Authenticate immediately on connect
+        socket.on('connect', () => {
             if (onLog) onLog('✅ Gateway connected', 'success');
             if (onStatusChange) onStatusChange('Gateway Connected');
             startKeepAlive();
             
+            // ✅ SEND AUTHENTICATION IMMEDIATELY
+            if (onLog) onLog('🔐 Authenticating with Gateway...', 'info');
             socket.emit('authenticate', { token: authToken });
+            
+            // Set timeout for authentication
+            authTimeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    if (onLog) onLog('❌ Authentication timeout', 'error');
+                    resolve(false);
+                }
+            }, 10000);
         });
 
+        // ✅ Handle authentication response
         socket.on('authenticated', async (response) => {
+            if (authTimeout) {
+                clearTimeout(authTimeout);
+                authTimeout = null;
+            }
+            
             if (response?.success) {
                 if (onLog) onLog(`✅ Authenticated as ${response.user_id?.slice(0, 8)}...`, 'success');
+                if (onLog) onLog(`🏠 Room: ${response.room_name}`, 'info');
                 
+                // Now set up WebRTC
                 const success = await setupWebRTC(stream);
                 isConnected = success;
-                resolve(success);
+                
+                if (!resolved) {
+                    resolved = true;
+                    resolve(success);
+                }
             } else {
-                if (onLog) onLog('❌ Auth failed: ' + response?.error, 'error');
-                resolve(false);
+                if (onLog) onLog('❌ Auth failed: ' + (response?.error || 'Unknown'), 'error');
+                if (!resolved) {
+                    resolved = true;
+                    resolve(false);
+                }
             }
         });
 
         socket.on('connect_error', (e) => {
             if (onLog) onLog('Connection error: ' + e.message, 'error');
-            resolve(false);
+            if (!resolved) {
+                resolved = true;
+                resolve(false);
+            }
         });
 
         socket.on('disconnect', (reason) => {
-            if (onLog) onLog('Gateway disconnected: ' + reason, 'info');
+            if (onLog) onLog('Gateway disconnected: ' + reason, 'warn');
             isConnected = false;
             stopKeepAlive();
             if (onStatusChange) onStatusChange('Disconnected');
             
-            if (authToken) {
-                reconnectTimer = setTimeout(() => connectWebRTC(token, stream, callbacks), 2000);
+            // Auto-reconnect
+            if (authToken && !reconnectTimer) {
+                reconnectTimer = setTimeout(() => {
+                    reconnectTimer = null;
+                    if (onLog) onLog('🔄 Reconnecting...', 'info');
+                    connectWebRTC(authToken, stream, callbacks);
+                }, 2000);
             }
         });
 
@@ -188,6 +259,10 @@ async function connectWebRTC(token, stream, callbacks) {
             if (data?.audio && onTTS) onTTS(data.audio);
             if (data?.transcript && onTranscript) onTranscript(data.transcript);
             if (data?.response && onResponse) onResponse(data.response);
+        });
+        
+        socket.on('error', (error) => {
+            if (onLog) onLog('Gateway error: ' + error, 'error');
         });
     });
 }
@@ -202,14 +277,19 @@ function disconnectWebRTC() {
         reconnectTimer = null;
     }
     
+    if (authTimeout) {
+        clearTimeout(authTimeout);
+        authTimeout = null;
+    }
+    
     stopKeepAlive();
 
     if (audioProducer) {
-        audioProducer.close();
+        try { audioProducer.close(); } catch (e) {}
         audioProducer = null;
     }
     if (producerTransport) {
-        producerTransport.close();
+        try { producerTransport.close(); } catch (e) {}
         producerTransport = null;
     }
     if (socket) {
@@ -223,7 +303,7 @@ function disconnectWebRTC() {
 }
 
 function isWebRTCConnected() {
-    return isConnected;
+    return isConnected && socket?.connected;
 }
 
 export { connectWebRTC, disconnectWebRTC, isWebRTCConnected };
