@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Surf Voice - Gateway Test</title>
+    <title>Surf Voice - Gateway Test with Logs</title>
     <style>
+        * { box-sizing: border-box; }
         body {
-            font-family: monospace;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
             background: #0a0f0f;
             color: #00ff9d;
             padding: 20px;
@@ -15,328 +16,797 @@
         h1 {
             color: #00ffcc;
             font-size: 24px;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
-        .controls {
+        .subtitle {
+            color: #4a5a6a;
+            margin-bottom: 20px;
+            font-size: 12px;
+        }
+        .auth-section {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #2a3a4a;
+        }
+        .input-group {
             display: flex;
             gap: 10px;
-            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .input-group input {
+            flex: 1;
+            padding: 12px;
+            background: #000;
+            border: 1px solid #2a3a4a;
+            color: #00ff9d;
+            font-family: monospace;
+            border-radius: 4px;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: #00ff9d;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
             margin-bottom: 20px;
         }
         button {
             background: #1a2332;
             color: #00ff9d;
             border: 1px solid #2a3a4a;
-            padding: 12px 20px;
+            padding: 14px 10px;
             font-family: monospace;
-            font-size: 14px;
+            font-size: 13px;
             cursor: pointer;
-            border-radius: 4px;
+            border-radius: 6px;
             transition: all 0.2s;
+            font-weight: 500;
         }
-        button:hover {
+        button:hover:not(:disabled) {
             background: #2a3a4a;
             border-color: #00ff9d;
+            transform: translateY(-1px);
         }
         button:disabled {
             opacity: 0.4;
             cursor: not-allowed;
         }
+        button.success {
+            background: #0d3320;
+            border-color: #00ff9d;
+        }
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            background: #0d1117;
+            border-radius: 6px;
+        }
+        .status-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+            transition: all 0.3s;
+        }
+        .status-dot.connected {
+            background: #00ff9d;
+            box-shadow: 0 0 12px #00ff9d;
+        }
+        .status-dot.authenticated {
+            background: #00aaff;
+            box-shadow: 0 0 12px #00aaff;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            color: #4a5a6a;
+            font-size: 12px;
+        }
         .log-container {
             background: #000;
             border: 1px solid #1a2332;
-            border-radius: 4px;
+            border-radius: 8px;
             padding: 15px;
-            height: 500px;
+            height: 450px;
             overflow-y: auto;
             font-size: 12px;
             line-height: 1.6;
         }
         .log-entry {
-            padding: 3px 0;
+            padding: 4px 0;
             border-bottom: 1px solid #0d1117;
+            display: flex;
         }
         .log-time {
-            color: #4a5a6a;
+            color: #3a4a5a;
+            margin-right: 12px;
+            flex-shrink: 0;
+            width: 70px;
+        }
+        .log-level {
             margin-right: 10px;
+            flex-shrink: 0;
+            width: 50px;
         }
-        .log-info { color: #00ff9d; }
-        .log-success { color: #00ffcc; }
-        .log-error { color: #ff4444; }
-        .log-warn { color: #ffaa00; }
-        .token-input {
-            width: 100%;
-            margin-bottom: 15px;
-            padding: 10px;
-            background: #0d1117;
-            border: 1px solid #2a3a4a;
+        .log-message {
+            word-break: break-word;
+        }
+        .log-info .log-level { color: #4a9eff; }
+        .log-success .log-level { color: #00ff9d; }
+        .log-error .log-level { color: #ff4444; }
+        .log-warn .log-level { color: #ffaa00; }
+        .log-debug .log-level { color: #6a7a8a; }
+        .log-tracker .log-level { color: #ff69b4; }
+        
+        .badge {
+            background: #1a2332;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
             color: #00ff9d;
-            font-family: monospace;
-            border-radius: 4px;
         }
-        .status {
-            margin-bottom: 15px;
-            padding: 8px 12px;
-            background: #0d1117;
-            border-radius: 4px;
-            display: inline-block;
-        }
-        .status-dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #ff4444;
-            margin-right: 8px;
-        }
-        .status-dot.connected {
-            background: #00ff9d;
-            box-shadow: 0 0 8px #00ff9d;
+        .error-detail {
+            color: #ff6666;
+            margin-left: 10px;
         }
     </style>
 </head>
 <body>
     <h1>🌊 Surf Voice - Gateway Test</h1>
+    <div class="subtitle">Tracker Logs Enabled | Sandbox URL: https://ashirafnewton-ait.github.io/extension/</div>
     
-    <div class="status">
-        <span class="status-dot" id="statusDot"></span>
-        <span id="statusText">Disconnected</span>
+    <!-- Auth Section -->
+    <div class="auth-section">
+        <div class="input-group">
+            <input type="email" id="emailInput" placeholder="Email" value="surf@testuser.com" />
+            <input type="password" id="passwordInput" placeholder="Password" value="Test1234!" />
+            <button id="loginBtn" style="width: auto; padding: 12px 24px;">🔑 Login</button>
+        </div>
+        <div class="input-group">
+            <input type="text" id="tokenInput" placeholder="Or paste JWT token directly..." readonly />
+            <button id="useTokenBtn" disabled style="width: auto;">📋 Use Token</button>
+        </div>
     </div>
     
-    <input type="text" class="token-input" id="tokenInput" placeholder="Paste Supabase JWT token here..." />
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-left">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Disconnected</span>
+            <span class="badge" id="stepBadge">Step 0/4</span>
+        </div>
+        <div class="stats">
+            <span id="sidDisplay">SID: --</span>
+            <span id="roomDisplay">Room: --</span>
+            <span id="latencyDisplay">Latency: --</span>
+        </div>
+    </div>
     
+    <!-- Control Buttons -->
     <div class="controls">
-        <button id="authBtn">🔐 1. Authenticate</button>
-        <button id="capsBtn" disabled>📡 2. Get Router Caps</button>
-        <button id="transportBtn" disabled>🔗 3. Create Producer Transport</button>
-        <button id="connectBtn" disabled>✅ 4. Connect Transport</button>
+        <button id="step1Btn" disabled>🔐 1. Authenticate</button>
+        <button id="step2Btn" disabled>📡 2. Get Router Caps</button>
+        <button id="step3Btn" disabled>🔗 3. Create Transport</button>
+        <button id="step4Btn" disabled>✅ 4. Connect Transport</button>
     </div>
     
+    <!-- Log Container -->
     <div class="log-container" id="logContainer">
-        <div class="log-entry"><span class="log-time">[--:--:--]</span> <span class="log-info">Ready. Paste token and click Authenticate.</span></div>
+        <div class="log-entry log-info">
+            <span class="log-time">[--:--:--]</span>
+            <span class="log-level">[INFO]</span>
+            <span class="log-message">Tracker ready. Login to begin.</span>
+        </div>
     </div>
 
     <!-- Libraries -->
     <script src="lib/socket.io.min.js"></script>
     
     <script>
+        // ═══════════════════════════════════════════════════════════════════════
+        // CONFIGURATION
+        // ═══════════════════════════════════════════════════════════════════════
+        
         const GATEWAY_URL = 'https://surf-gateway.onrender.com';
+        const SUPABASE_URL = 'https://ljksgzttnufecxohwtwm.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxqa3NnenR0bnVmZWN4b2h3dHdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxOTc1NzQsImV4cCI6MjA5MTc3MzU3NH0.jSnVFEe6w-fUA39iD7o9BP0EygB7yejofuU4GUbK6Bk';
+        const SANDBOX_URL = 'https://ashirafnewton-ait.github.io/extension/';
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // GLOBAL STATE
+        // ═══════════════════════════════════════════════════════════════════════
         
         let socket = null;
-        let isConnected = false;
-        let isAuthenticated = false;
+        let currentToken = null;
+        let currentUser = null;
         let routerCaps = null;
-        let producerTransport = null;
         let transportInfo = null;
+        let pingInterval = null;
         
-        // DOM Elements
+        const state = {
+            connected: false,
+            authenticated: false,
+            capsReceived: false,
+            transportCreated: false,
+            transportConnected: false
+        };
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // DOM ELEMENTS
+        // ═══════════════════════════════════════════════════════════════════════
+        
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
+        const stepBadge = document.getElementById('stepBadge');
+        const sidDisplay = document.getElementById('sidDisplay');
+        const roomDisplay = document.getElementById('roomDisplay');
+        const latencyDisplay = document.getElementById('latencyDisplay');
+        
+        const emailInput = document.getElementById('emailInput');
+        const passwordInput = document.getElementById('passwordInput');
         const tokenInput = document.getElementById('tokenInput');
-        const authBtn = document.getElementById('authBtn');
-        const capsBtn = document.getElementById('capsBtn');
-        const transportBtn = document.getElementById('transportBtn');
-        const connectBtn = document.getElementById('connectBtn');
+        const loginBtn = document.getElementById('loginBtn');
+        const useTokenBtn = document.getElementById('useTokenBtn');
+        
+        const step1Btn = document.getElementById('step1Btn');
+        const step2Btn = document.getElementById('step2Btn');
+        const step3Btn = document.getElementById('step3Btn');
+        const step4Btn = document.getElementById('step4Btn');
+        
         const logContainer = document.getElementById('logContainer');
         
-        // ═══════════════════════════════════════════════════════════
-        // LOGGING
-        // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // TRACKER LOG SYSTEM
+        // ═══════════════════════════════════════════════════════════════════════
         
-        function log(message, type = 'info') {
-            const time = new Date().toLocaleTimeString('en-US', { hour12: false });
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${message}</span>`;
-            logContainer.appendChild(entry);
+        const trackerLogs = [];
+        
+        function tracker(event, data = {}, level = 'tracker') {
+            const timestamp = new Date();
+            const entry = {
+                timestamp: timestamp.toISOString(),
+                event,
+                data,
+                level
+            };
+            trackerLogs.push(entry);
+            
+            // Log to console
+            console.log(`[TRACKER] ${event}`, data);
+            
+            // Log to UI
+            const timeStr = timestamp.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const entryDiv = document.createElement('div');
+            entryDiv.className = `log-entry log-${level}`;
+            
+            let dataStr = '';
+            if (Object.keys(data).length > 0) {
+                dataStr = ' | ' + JSON.stringify(data, null, 0).replace(/[{}"]/g, '').replace(/,/g, ', ');
+                if (dataStr.length > 80) dataStr = dataStr.substring(0, 80) + '...';
+            }
+            
+            entryDiv.innerHTML = `
+                <span class="log-time">[${timeStr}]</span>
+                <span class="log-level">[${level.toUpperCase()}]</span>
+                <span class="log-message">🔍 ${event}${dataStr}</span>
+            `;
+            logContainer.appendChild(entryDiv);
             logContainer.scrollTop = logContainer.scrollHeight;
-            console.log(`[${type.toUpperCase()}] ${message}`);
+            
+            // Send to parent if in iframe
+            if (window.parent !== window) {
+                window.parent.postMessage({ type: 'tracker_log', entry }, '*');
+            }
         }
         
-        function updateStatus(connected, text) {
-            isConnected = connected;
-            statusDot.className = connected ? 'status-dot connected' : 'status-dot';
-            statusText.textContent = text || (connected ? 'Connected' : 'Disconnected');
+        function log(message, level = 'info') {
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const entryDiv = document.createElement('div');
+            entryDiv.className = `log-entry log-${level}`;
+            entryDiv.innerHTML = `
+                <span class="log-time">[${time}]</span>
+                <span class="log-level">[${level.toUpperCase()}]</span>
+                <span class="log-message">${message}</span>
+            `;
+            logContainer.appendChild(entryDiv);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Also track for important events
+            if (level === 'success' || level === 'error') {
+                tracker(message, { level }, level);
+            }
         }
         
-        // ═══════════════════════════════════════════════════════════
-        // CONNECT SOCKET
-        // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // UI UPDATES
+        // ═══════════════════════════════════════════════════════════════════════
         
-        function ensureConnection() {
-            if (socket && socket.connected) return true;
+        function updateStepBadge() {
+            let step = 0;
+            if (state.connected) step = 0.5;
+            if (state.authenticated) step = 1;
+            if (state.capsReceived) step = 2;
+            if (state.transportCreated) step = 3;
+            if (state.transportConnected) step = 4;
             
-            log('📡 Connecting to Gateway...', 'info');
-            socket = io(GATEWAY_URL, { transports: ['websocket'] });
+            stepBadge.textContent = `Step ${step}/4`;
             
-            socket.on('connect', () => {
-                log('✅ Socket connected! SID: ' + socket.id, 'success');
-                updateStatus(true);
-                authBtn.disabled = false;
+            if (state.transportConnected) {
+                stepBadge.style.background = '#0d3320';
+                stepBadge.style.color = '#00ff9d';
+            }
+        }
+        
+        function updateButtons() {
+            step1Btn.disabled = !state.connected || !currentToken;
+            step2Btn.disabled = !state.authenticated;
+            step3Btn.disabled = !state.capsReceived;
+            step4Btn.disabled = !state.transportCreated;
+            
+            if (state.authenticated) {
+                step1Btn.classList.add('success');
+                step1Btn.textContent = '🔐 Authenticated ✅';
+            }
+            if (state.capsReceived) {
+                step2Btn.classList.add('success');
+                step2Btn.textContent = '📡 Caps Received ✅';
+            }
+            if (state.transportCreated) {
+                step3Btn.classList.add('success');
+                step3Btn.textContent = '🔗 Transport Created ✅';
+            }
+            if (state.transportConnected) {
+                step4Btn.classList.add('success');
+                step4Btn.textContent = '✅ Connected ✅';
+            }
+            
+            updateStepBadge();
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // SUPABASE AUTH
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        async function loginWithSupabase(email, password) {
+            tracker('auth_login_start', { email });
+            log(`🔐 Logging in to Supabase...`, 'info');
+            
+            try {
+                const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    tracker('auth_login_failed', { error: data.error_description || data.msg }, 'error');
+                    log(`❌ Login failed: ${data.error_description || data.msg}`, 'error');
+                    return null;
+                }
+                
+                tracker('auth_login_success', { 
+                    user_id: data.user?.id?.slice(0, 8) + '...',
+                    expires_in: data.expires_in 
+                }, 'success');
+                
+                log(`✅ Logged in as ${data.user?.email}`, 'success');
+                log(`   Token expires in ${data.expires_in}s`, 'info');
+                
+                currentUser = data.user;
+                return data.access_token;
+                
+            } catch (error) {
+                tracker('auth_login_error', { error: error.message }, 'error');
+                log(`❌ Login error: ${error.message}`, 'error');
+                return null;
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // SOCKET CONNECTION
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        function connectSocket() {
+            if (socket?.connected) return;
+            
+            tracker('socket_connecting', { url: GATEWAY_URL });
+            log(`📡 Connecting to ${GATEWAY_URL}...`, 'info');
+            
+            socket = io(GATEWAY_URL, { 
+                transports: ['websocket'],
+                reconnection: true,
+                reconnectionAttempts: 5
             });
             
-            socket.on('connect_error', (e) => {
-                log('❌ Connection error: ' + e.message, 'error');
-                updateStatus(false, 'Error');
+            socket.on('connect', () => {
+                state.connected = true;
+                tracker('socket_connected', { sid: socket.id }, 'success');
+                
+                log(`✅ Socket connected!`, 'success');
+                log(`   SID: ${socket.id}`, 'info');
+                
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = 'Connected';
+                sidDisplay.textContent = `SID: ${socket.id?.slice(0, 8)}...`;
+                
+                updateButtons();
+                
+                // Start ping for latency
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (socket?.connected) {
+                        const start = Date.now();
+                        socket.emit('ping', () => {
+                            const latency = Date.now() - start;
+                            latencyDisplay.textContent = `Latency: ${latency}ms`;
+                            tracker('socket_ping', { latency }, 'debug');
+                        });
+                    }
+                }, 5000);
+            });
+            
+            socket.on('connect_error', (error) => {
+                tracker('socket_error', { message: error.message }, 'error');
+                log(`❌ Connection error: ${error.message}`, 'error');
+                statusDot.className = 'status-dot';
+                statusText.textContent = 'Error';
             });
             
             socket.on('disconnect', (reason) => {
-                log('🔌 Disconnected: ' + reason, 'warn');
-                updateStatus(false);
-                isAuthenticated = false;
-                capsBtn.disabled = true;
-                transportBtn.disabled = true;
-                connectBtn.disabled = true;
+                state.connected = false;
+                state.authenticated = false;
+                state.capsReceived = false;
+                state.transportCreated = false;
+                state.transportConnected = false;
+                
+                tracker('socket_disconnected', { reason }, 'warn');
+                log(`🔌 Disconnected: ${reason}`, 'warn');
+                
+                statusDot.className = 'status-dot';
+                statusText.textContent = 'Disconnected';
+                sidDisplay.textContent = 'SID: --';
+                roomDisplay.textContent = 'Room: --';
+                
+                if (pingInterval) {
+                    clearInterval(pingInterval);
+                    pingInterval = null;
+                }
+                
+                updateButtons();
             });
             
-            return false;
+            socket.onAny((event, ...args) => {
+                tracker('socket_event_received', { event }, 'debug');
+            });
         }
         
-        // ═══════════════════════════════════════════════════════════
-        // 1. AUTHENTICATE
-        // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // STEP 1: AUTHENTICATE
+        // ═══════════════════════════════════════════════════════════════════════
         
-        async function authenticate() {
-            const token = tokenInput.value.trim();
-            if (!token) {
-                log('❌ Please paste a JWT token', 'error');
+        async function authenticate(token) {
+            if (!socket?.connected) {
+                log('❌ Socket not connected', 'error');
                 return;
             }
             
-            ensureConnection();
-            
-            if (!socket || !socket.connected) {
-                log('⏳ Waiting for connection...', 'warn');
-                setTimeout(authenticate, 500);
-                return;
-            }
-            
-            log('🔐 Sending authenticate...', 'info');
+            tracker('step1_authenticate_start', { token_length: token?.length });
+            log('🔐 Sending authenticate to gateway...', 'info');
             
             socket.emit('authenticate', { token }, (response) => {
                 if (response?.success) {
-                    isAuthenticated = true;
-                    log(`✅ Authenticated! User: ${response.user_id?.slice(0, 8)}...`, 'success');
+                    state.authenticated = true;
+                    
+                    tracker('step1_authenticate_success', {
+                        user_id: response.user_id?.slice(0, 8) + '...',
+                        session_id: response.session_id,
+                        room: response.room_name
+                    }, 'success');
+                    
+                    log(`✅ Authenticated!`, 'success');
+                    log(`   User: ${response.user_id?.slice(0, 12)}...`, 'info');
                     log(`   Session: ${response.session_id}`, 'info');
                     log(`   Room: ${response.room_name}`, 'info');
                     
-                    capsBtn.disabled = false;
-                    authBtn.disabled = true;
-                    authBtn.textContent = '🔐 Authenticated ✅';
+                    statusDot.className = 'status-dot authenticated';
+                    statusText.textContent = 'Authenticated';
+                    roomDisplay.textContent = `Room: ${response.room_name}`;
+                    
+                    updateButtons();
                 } else {
-                    log('❌ Auth failed: ' + (response?.error || 'Unknown error'), 'error');
+                    tracker('step1_authenticate_failed', { error: response?.error }, 'error');
+                    log(`❌ Auth failed: ${response?.error || 'Unknown error'}`, 'error');
                 }
             });
         }
         
-        // ═══════════════════════════════════════════════════════════
-        // 2. GET ROUTER CAPABILITIES
-        // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // STEP 2: GET ROUTER CAPABILITIES
+        // ═══════════════════════════════════════════════════════════════════════
         
-        async function getRouterCapabilities() {
-            if (!isAuthenticated) {
-                log('❌ Authenticate first', 'error');
-                return;
-            }
-            
-            log('📡 Requesting router capabilities...', 'info');
+        function getRouterCapabilities() {
+            tracker('step2_get_caps_start');
+            log('📡 Requesting router RTP capabilities...', 'info');
             
             socket.emit('getRouterRtpCapabilities');
             
             socket.once('routerRtpCapabilities', (caps) => {
                 if (caps?.error) {
-                    log('❌ Router caps error: ' + caps.error, 'error');
+                    tracker('step2_get_caps_failed', { error: caps.error }, 'error');
+                    log(`❌ Router caps error: ${caps.error}`, 'error');
                     return;
                 }
                 
+                state.capsReceived = true;
                 routerCaps = caps;
-                const codecs = caps.codecs?.map(c => c.mimeType).join(', ') || 'none';
-                log('✅ Router capabilities received!', 'success');
-                log(`   Codecs: ${codecs}`, 'info');
                 
-                transportBtn.disabled = false;
-                capsBtn.disabled = true;
-                capsBtn.textContent = '📡 Caps Received ✅';
+                const codecs = caps.codecs?.map(c => c.mimeType).join(', ') || 'none';
+                const headerExts = caps.headerExtensions?.length || 0;
+                
+                tracker('step2_get_caps_success', {
+                    codecs_count: caps.codecs?.length || 0,
+                    header_extensions: headerExts
+                }, 'success');
+                
+                log(`✅ Router capabilities received!`, 'success');
+                log(`   Codecs: ${codecs}`, 'info');
+                log(`   Header Extensions: ${headerExts}`, 'info');
+                
+                updateButtons();
             });
         }
         
-        // ═══════════════════════════════════════════════════════════
-        // 3. CREATE PRODUCER TRANSPORT
-        // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // STEP 3: CREATE PRODUCER TRANSPORT
+        // ═══════════════════════════════════════════════════════════════════════
         
-        async function createTransport() {
-            if (!routerCaps) {
-                log('❌ Get router capabilities first', 'error');
-                return;
-            }
-            
+        function createProducerTransport() {
+            tracker('step3_create_transport_start');
             log('🔗 Creating producer transport...', 'info');
             
             socket.emit('createProducerTransport', (response) => {
                 if (response?.error) {
-                    log('❌ Transport creation failed: ' + response.error, 'error');
+                    tracker('step3_create_transport_failed', { error: response.error }, 'error');
+                    log(`❌ Transport creation failed: ${response.error}`, 'error');
                     return;
                 }
                 
+                state.transportCreated = true;
                 transportInfo = response;
-                log('✅ Producer transport created!', 'success');
-                log(`   ID: ${response.id?.slice(0, 20)}...`, 'info');
-                log(`   ICE Candidates: ${response.iceCandidates?.length || 0}`, 'info');
                 
-                connectBtn.disabled = false;
-                transportBtn.disabled = true;
-                transportBtn.textContent = '🔗 Transport Created ✅';
+                tracker('step3_create_transport_success', {
+                    transport_id: response.id?.slice(0, 20) + '...',
+                    ice_candidates: response.iceCandidates?.length || 0,
+                    ice_parameters: !!response.iceParameters
+                }, 'success');
+                
+                log(`✅ Producer transport created!`, 'success');
+                log(`   ID: ${response.id?.slice(0, 24)}...`, 'info');
+                log(`   ICE Candidates: ${response.iceCandidates?.length || 0}`, 'info');
+                log(`   ICE Role: ${response.iceParameters?.iceLite ? 'lite' : 'full'}`, 'info');
+                
+                updateButtons();
             });
         }
         
-        // ═══════════════════════════════════════════════════════════
-        // 4. CONNECT TRANSPORT
-        // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // STEP 4: CONNECT TRANSPORT
+        // ═══════════════════════════════════════════════════════════════════════
         
-        async function connectTransport() {
-            if (!transportInfo) {
-                log('❌ Create transport first', 'error');
-                return;
-            }
-            
-            log('✅ Connecting transport...', 'info');
+        function connectProducerTransport() {
+            tracker('step4_connect_transport_start', {
+                transport_id: transportInfo?.id?.slice(0, 20) + '...'
+            });
+            log('✅ Connecting transport (sending DTLS parameters)...', 'info');
             
             socket.emit('connectProducerTransport', { 
                 dtlsParameters: transportInfo.dtlsParameters 
             }, (response) => {
                 if (response?.error) {
-                    log('❌ Connect failed: ' + response.error, 'error');
+                    tracker('step4_connect_transport_failed', { error: response.error }, 'error');
+                    log(`❌ Connect failed: ${response.error}`, 'error');
                     return;
                 }
                 
-                producerTransport = transportInfo;
-                log('✅ Transport connected!', 'success');
-                log('🎉 All 4 steps complete! Ready to produce audio.', 'success');
+                state.transportConnected = true;
                 
-                connectBtn.disabled = true;
-                connectBtn.textContent = '✅ Connected ✅';
+                tracker('step4_connect_transport_success', {
+                    transport_connected: true
+                }, 'success');
+                
+                log(`✅ Transport connected!`, 'success');
+                log(`🎉 ALL 4 STEPS COMPLETE! Ready to produce audio.`, 'success');
+                log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'success');
+                log(`Next: call transport.produce() with audio track`, 'info');
+                
+                statusText.textContent = 'Ready (Transport Connected)';
+                
+                updateButtons();
             });
         }
         
-        // ═══════════════════════════════════════════════════════════
-        // INIT
-        // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // AUTO-RUN FULL FLOW
+        // ═══════════════════════════════════════════════════════════════════════
         
-        authBtn.addEventListener('click', authenticate);
-        capsBtn.addEventListener('click', getRouterCapabilities);
-        transportBtn.addEventListener('click', createTransport);
-        connectBtn.addEventListener('click', connectTransport);
+        async function runFullFlow(token) {
+            log('🚀 Starting full connection flow...', 'info');
+            tracker('full_flow_start');
+            
+            connectSocket();
+            
+            // Wait for connection
+            await new Promise(resolve => {
+                if (socket?.connected) resolve();
+                else socket?.once('connect', resolve);
+            });
+            
+            // Step 1
+            await new Promise(resolve => {
+                socket.emit('authenticate', { token }, (r) => {
+                    if (r?.success) {
+                        state.authenticated = true;
+                        updateButtons();
+                    }
+                    resolve();
+                });
+            });
+            
+            // Step 2
+            await new Promise(resolve => {
+                socket.emit('getRouterRtpCapabilities');
+                socket.once('routerRtpCapabilities', (caps) => {
+                    if (!caps?.error) {
+                        state.capsReceived = true;
+                        routerCaps = caps;
+                        updateButtons();
+                    }
+                    resolve();
+                });
+            });
+            
+            // Step 3
+            await new Promise(resolve => {
+                socket.emit('createProducerTransport', (r) => {
+                    if (!r?.error) {
+                        state.transportCreated = true;
+                        transportInfo = r;
+                        updateButtons();
+                    }
+                    resolve();
+                });
+            });
+            
+            // Step 4
+            await new Promise(resolve => {
+                socket.emit('connectProducerTransport', { 
+                    dtlsParameters: transportInfo.dtlsParameters 
+                }, (r) => {
+                    if (!r?.error) {
+                        state.transportConnected = true;
+                        updateButtons();
+                    }
+                    resolve();
+                });
+            });
+            
+            tracker('full_flow_complete', state);
+            log('✅ Full flow complete!', 'success');
+        }
         
-        // Auto-fill token if in URL
+        // ═══════════════════════════════════════════════════════════════════════
+        // EVENT LISTENERS
+        // ═══════════════════════════════════════════════════════════════════════
+        
+        loginBtn.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            
+            if (!email || !password) {
+                log('❌ Enter email and password', 'error');
+                return;
+            }
+            
+            loginBtn.disabled = true;
+            loginBtn.textContent = '⏳ Logging in...';
+            
+            const token = await loginWithSupabase(email, password);
+            
+            if (token) {
+                currentToken = token;
+                tokenInput.value = token;
+                useTokenBtn.disabled = false;
+                
+                tracker('token_acquired', { source: 'supabase_login' });
+                
+                // Auto-connect and run flow
+                connectSocket();
+                
+                // Wait for connection then authenticate
+                setTimeout(() => {
+                    if (socket?.connected) {
+                        authenticate(token);
+                    } else {
+                        socket?.once('connect', () => authenticate(token));
+                    }
+                }, 500);
+            }
+            
+            loginBtn.disabled = false;
+            loginBtn.textContent = '🔑 Login';
+        });
+        
+        useTokenBtn.addEventListener('click', () => {
+            const token = tokenInput.value.trim();
+            if (token) {
+                currentToken = token;
+                connectSocket();
+                setTimeout(() => {
+                    if (socket?.connected) {
+                        authenticate(token);
+                    } else {
+                        socket?.once('connect', () => authenticate(token));
+                    }
+                }, 500);
+            }
+        });
+        
+        step1Btn.addEventListener('click', () => {
+            if (currentToken) authenticate(currentToken);
+        });
+        
+        step2Btn.addEventListener('click', getRouterCapabilities);
+        step3Btn.addEventListener('click', createProducerTransport);
+        step4Btn.addEventListener('click', connectProducerTransport);
+        
+        // Auto-connect on page load
+        tracker('page_loaded', { 
+            sandbox_url: SANDBOX_URL,
+            gateway_url: GATEWAY_URL 
+        });
+        
+        log('🏄 Surf Voice Test Page Ready', 'success');
+        log(`Gateway: ${GATEWAY_URL}`, 'info');
+        log(`Sandbox: ${SANDBOX_URL}`, 'info');
+        log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
+        
+        // Auto-fill from URL
         const urlParams = new URLSearchParams(window.location.search);
         const tokenParam = urlParams.get('token');
         if (tokenParam) {
             tokenInput.value = tokenParam;
+            currentToken = tokenParam;
+            useTokenBtn.disabled = false;
             log('🔐 Token loaded from URL', 'info');
+            
+            // Auto-connect
+            setTimeout(() => {
+                connectSocket();
+                setTimeout(() => authenticate(tokenParam), 1000);
+            }, 100);
         }
         
-        log('Test page ready', 'success');
-        log('Gateway: ' + GATEWAY_URL, 'info');
+        // Expose tracker for debugging
+        window.getTrackerLogs = () => trackerLogs;
+        window.getState = () => state;
+        
     </script>
 </body>
 </html>
