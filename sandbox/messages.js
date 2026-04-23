@@ -5,6 +5,7 @@
 let messageHandlers = {};
 let authToken = null;
 let isSandboxReady = false;
+let tokenReceived = false;
 
 // ═══════════════════════════════════════════════════════════════════
 // SEND MESSAGES TO EXTENSION
@@ -67,32 +68,26 @@ function sendTokenReceived() {
     postMessage({ type: 'token_received' });
 }
 
-// ✅ NEW: Notes responses
 function sendNotesUpdated(notes) {
     postMessage({ type: 'notes_updated', notes: notes });
 }
 
-// ✅ NEW: Settings responses
 function sendSettingsUpdated(settings) {
     postMessage({ type: 'settings_updated', settings: settings });
 }
 
-// ✅ NEW: Chat response
 function sendChatResponse(text) {
     postMessage({ type: 'chat_response', text: text });
 }
 
-// ✅ NEW: Call status
 function sendCallStatus(status, data = {}) {
     postMessage({ type: 'call_status', status: status, ...data });
 }
 
-// ✅ NEW: Quiz response
 function sendQuizResponse(quiz) {
     postMessage({ type: 'quiz_response', quiz: quiz });
 }
 
-// ✅ NEW: Summary response
 function sendSummaryResponse(summary) {
     postMessage({ type: 'summary_response', summary: summary });
 }
@@ -116,19 +111,24 @@ function isReady() {
 // Setup message listener
 window.addEventListener('message', (event) => {
     const msg = event.data;
-    
+
     if (msg.type === 'auth_token') {
+        // ✅ Prevent duplicate token processing
+        if (tokenReceived) {
+            console.log('[Sandbox] Ignoring duplicate auth_token');
+            return;
+        }
+        tokenReceived = true;
         authToken = msg.token;
         sendLog('🔐 Auth token received');
         sendTokenReceived();
         window.authToken = authToken;
     }
-    
+
     const handler = messageHandlers[msg.type];
     if (handler) {
         handler(msg);
     } else {
-        // Only log unknown types for debugging, skip log messages
         if (msg.type !== 'log') {
             sendLog(`📨 Received: ${msg.type}`);
         }
@@ -144,6 +144,12 @@ function markReady() {
     sendLog('Sandbox ready');
     sendStatus('Ready');
     postMessage({ type: 'sandbox_ready' });
+}
+
+// ✅ Reset token state (for reconnection)
+function resetTokenState() {
+    tokenReceived = false;
+    authToken = null;
 }
 
 export {
@@ -169,5 +175,6 @@ export {
     onMessage,
     getAuthToken,
     isReady,
-    markReady
+    markReady,
+    resetTokenState
 };
