@@ -13,7 +13,7 @@ import {
     isTokenValid,
     refreshAuthToken
 } from './rest-client.js';
-import { connectWebRTC, disconnectWebRTC } from './webrtc-client.js';
+import { connectWebRTC, disconnectWebRTC, isWebRTCConnected } from './webrtc-client.js';
 import {
     postMessage,
     sendStatus,
@@ -34,6 +34,8 @@ let isActive = false;
 let localStream = null;
 let currentMode = null; // 'sfu' or 'rest'
 let selectedVoice = 'en-US-AriaNeural';
+let webrtcAttempts = 0;
+const MAX_WEBRTC_ATTEMPTS = 2;
 
 // ═══════════════════════════════════════════════════════════════════
 // TTS CALLBACK
@@ -49,15 +51,21 @@ async function handleTTS(audioBase64) {
 
 async function startRESTMode() {
     try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-        });
+        // Stop any existing WebRTC connection
+        disconnectWebRTC();
         
+        // Get fresh microphone stream if needed
+        if (!localStream) {
+            localStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            });
+        }
+
         sendLog('🎤 Mic: ' + localStream.getAudioTracks()[0].label, 'success');
-        
+
         // Start REST recording
         startRESTRecording(localStream);
-        
+
         // Start VAD
         startVAD(localStream, {
             onSpeechStart: () => sendVADStatus(true),
@@ -71,13 +79,13 @@ async function startRESTMode() {
                 });
             }
         });
-        
+
         isActive = true;
         currentMode = 'rest';
         sendStreaming('rest');
         sendStatus('REST Recording');
         sendLog('🎤 REST mode active', 'success');
-        
+
     } catch (e) {
         sendLog('REST mode failed: ' + e.message, 'error');
         sendError(e.message);
@@ -91,55 +99,35 @@ async function startRESTMode() {
 
 async function startMic() {
     const token = getAuthToken();
-    
+
     if (!token) {
         sendLog('❌ No auth token', 'error');
         sendError('No authentication token');
         return;
     }
-    
-    sendLog('Starting mic...');
-    
+
+    sendLog('🚀 Starting mic...', 'info');
+    webrtcAttempts = 0;
+
     try {
-        // Try to get microphone first
+        // Get microphone stream
         localStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            audio: { 
+                echoCancellation: true, 
+                noiseSuppression: true, 
+                autoGainControl: true 
+            }
         });
-        
+
         sendLog('🎤 Mic: ' + localStream.getAudioTracks()[0].label, 'success');
-        
+
         // Try WebRTC first
-        sendLog('📡 Attempting WebRTC SFU...', 'info');
-        
-        const webrtcSuccess = await connectWebRTC(token, localStream, {
-            onStatusChange: (status) => sendStatus(status),
-            onLog: sendLog,
-            onTTS: handleTTS,
-            onTranscript: sendTranscript,
-            onResponse: sendResponse
-        });
-        
-        if (webrtcSuccess) {
-            currentMode = 'sfu';
-            isActive = true;
-            
-            // Still start VAD for potential fallback
-            startVAD(localStream, {
-                onSpeechStart: () => sendVADStatus(true),
-                onSpeechEnd: () => sendVADStatus(false)
-            });
-            
-            return;
-        }
-        
-        // Fallback to REST
-        sendLog('⚠️ WebRTC failed, falling back to REST', 'warn');
-        await startRESTMode();
-        
+        await attemptWebRTC(token);
+
     } catch (e) {
         sendLog('Failed to start: ' + e.message, 'error');
         sendError(e.message);
-        
+
         // Cleanup
         if (localStream) {
             localStream.getTracks().forEach(t => t.stop());
@@ -149,32 +137,121 @@ async function startMic() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// ATTEMPT WEBRTC (with retry)
+// ═══════════════════════════════════════════════════════════════════
+
+async function attemptWebRTC(token) {
+    webrtcAttempts++;
+    sendLog(`📡 Attempting WebRTC SFU... (attempt ${webrtcAttempts}/${MAX_WEBRTC_ATTEMPTS})`, 'info');
+
+    try {
+        const webrtcSuccess = await connectWebRTC(token, localStream, {
+            onStatusChange: (status) => sendStatus(status),
+            onLog: sendLog,
+            onTTS: handleTTS,
+            onTranscript: sendTranscript,
+            onResponse: sendResponse
+        });
+
+        if (webrtcSuccess) {
+            currentMode = 'sfu';
+            isActive = true;
+            webrtcAttempts = 0;
+            
+            sendStreaming('sfu');
+            sendStatus('SFU Streaming');
+            sendLog('✅ WebRTC SFU connected!', 'success');
+
+            // Start VAD for potential fallback
+            startVAD(localStream, {
+                onSpeechStart: () => sendVADStatus(true),
+                onSpeechEnd: () => sendVADStatus(false)
+            });
+
+            // Set up disconnect handler for auto-fallback
+            setupWebRTCFallback(token);
+            
+            return;
+        }
+
+        // WebRTC failed
+        handleWebRTCFailure(token);
+
+    } catch (e) {
+        sendLog('WebRTC error: ' + e.message, 'error');
+        handleWebRTCFailure(token);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HANDLE WEBRTC FAILURE
+// ═══════════════════════════════════════════════════════════════════
+
+function handleWebRTCFailure(token) {
+    if (webrtcAttempts < MAX_WEBRTC_ATTEMPTS) {
+        sendLog(`⏳ Retrying WebRTC in 2 seconds...`, 'warn');
+        setTimeout(() => attemptWebRTC(token), 2000);
+    } else {
+        sendLog('⚠️ WebRTC failed after ' + MAX_WEBRTC_ATTEMPTS + ' attempts, falling back to REST', 'warn');
+        startRESTMode();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SETUP WEBRTC FALLBACK ON DISCONNECT
+// ═══════════════════════════════════════════════════════════════════
+
+function setupWebRTCFallback(token) {
+    // Monitor WebRTC connection state
+    const checkInterval = setInterval(() => {
+        if (currentMode === 'sfu' && !isWebRTCConnected()) {
+            clearInterval(checkInterval);
+            sendLog('🔌 WebRTC disconnected, falling back to REST', 'warn');
+            
+            // Don't switch if already in REST mode
+            if (currentMode === 'sfu') {
+                startRESTMode();
+            }
+        }
+        
+        // Stop checking if mode changed
+        if (currentMode !== 'sfu') {
+            clearInterval(checkInterval);
+        }
+    }, 3000);
+    
+    // Clean up interval after 60 seconds max
+    setTimeout(() => clearInterval(checkInterval), 60000);
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // STOP MIC
 // ═══════════════════════════════════════════════════════════════════
 
 function stopMic() {
-    sendLog('Stopping mic...');
-    
+    sendLog('Stopping mic...', 'info');
+
     isActive = false;
-    
+    webrtcAttempts = 0;
+
     // Stop WebRTC
     disconnectWebRTC();
-    
+
     // Stop REST
     stopRESTRecording();
-    
+
     // Stop VAD
     stopVAD();
-    
+
     // Clear TTS queue
     clearTTSQueue();
-    
+
     // Stop microphone
     if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
         localStream = null;
     }
-    
+
     currentMode = null;
     sendStatus('Ready');
     sendDisconnected();
@@ -192,13 +269,34 @@ function setVoice(voice) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// HANDLE TOKEN UPDATE FROM EXTENSION
+// ═══════════════════════════════════════════════════════════════════
+
+function handleTokenUpdate(token) {
+    sendLog('🔐 Token updated', 'info');
+    setRestAuthToken(token);
+    
+    // If we're active in REST mode, update the token
+    if (isActive && currentMode === 'rest') {
+        setRestAuthToken(token);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // INITIALIZATION
 // ═══════════════════════════════════════════════════════════════════
 
 async function init() {
-    // Load Silero VAD
-    await loadSileroVAD();
+    sendLog('🔄 Initializing sandbox...', 'info');
     
+    // Load Silero VAD
+    try {
+        await loadSileroVAD();
+        sendLog('✅ VAD loaded', 'success');
+    } catch (e) {
+        sendLog('⚠️ VAD failed to load: ' + e.message, 'warn');
+    }
+
     // Set up message handlers from extension
     onMessage('start_mic', startMic);
     onMessage('stop_mic', stopMic);
@@ -212,24 +310,39 @@ async function init() {
             isActive,
             currentMode,
             vadReady: isVADReady(),
-            tokenValid: isTokenValid()
+            tokenValid: isTokenValid(),
+            webrtcConnected: isWebRTCConnected()
         });
     });
-    
+    onMessage('token_updated', (msg) => handleTokenUpdate(msg.token));
+
     // Set REST auth token when received
     const token = getAuthToken();
-    if (token) setRestAuthToken(token);
-    
+    if (token) {
+        setRestAuthToken(token);
+        sendLog('✅ Token available', 'success');
+    } else {
+        sendLog('⏳ Waiting for auth token...', 'warn');
+    }
+
     // Mark as ready
     markReady();
-    
+    sendLog('✅ Sandbox ready', 'success');
+
     // Expose for debugging
     window.SurfSandbox = {
         start: startMic,
         stop: stopMic,
         setVoice: setVoice,
-        getStatus: () => ({ isActive, currentMode, vadReady: isVADReady() }),
-        refreshToken: refreshAuthToken
+        getStatus: () => ({ 
+            isActive, 
+            currentMode, 
+            vadReady: isVADReady(),
+            webrtcConnected: isWebRTCConnected()
+        }),
+        refreshToken: refreshAuthToken,
+        forceRest: startRESTMode,
+        forceWebRTC: () => attemptWebRTC(getAuthToken())
     };
 }
 
