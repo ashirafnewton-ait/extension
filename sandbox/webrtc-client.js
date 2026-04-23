@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// WEBRTC CLIENT MODULE (Mediasoup) - FIXED
+// WEBRTC CLIENT MODULE - EVENT-BASED AUTHENTICATION
 // ═══════════════════════════════════════════════════════════════════
 
 const GATEWAY_URL = 'https://surf-gateway.onrender.com';
@@ -91,7 +91,6 @@ async function setupWebRTC(stream) {
             if (onLog) onLog('🔗 Connecting transport...', 'info');
             socket.emit('connectProducerTransport', { dtlsParameters }, (res) => {
                 if (res?.error) {
-                    if (onLog) onLog('Transport connect failed: ' + res.error, 'error');
                     errback(new Error(res.error));
                 } else {
                     if (onLog) onLog('✅ Transport connected', 'success');
@@ -104,7 +103,6 @@ async function setupWebRTC(stream) {
             if (onLog) onLog('🎤 Producing audio...', 'info');
             socket.emit('produce', { kind, rtpParameters }, (res) => {
                 if (res?.error) {
-                    if (onLog) onLog('Produce failed: ' + res.error, 'error');
                     errback(new Error(res.error));
                 } else {
                     if (onLog) onLog('✅ Producer created: ' + res.id?.slice(0, 8) + '...', 'success');
@@ -114,14 +112,10 @@ async function setupWebRTC(stream) {
         });
 
         producerTransport.on('connectionstatechange', (state) => {
-            if (onLog) onLog('Transport state: ' + state, 'info');
+            if (onLog) onLog('Transport: ' + state, 'info');
             if (state === 'connected') {
                 isConnected = true;
                 if (onStatusChange) onStatusChange('SFU Streaming');
-                if (onLog) onLog('🎉 SFU fully connected!', 'success');
-            }
-            if (state === 'failed' || state === 'closed') {
-                isConnected = false;
             }
         });
 
@@ -130,7 +124,7 @@ async function setupWebRTC(stream) {
             codecOptions: { opusStereo: false, opusDtx: true, opusFec: true }
         });
 
-        if (onLog) onLog('🎤 Producer created successfully!', 'success');
+        if (onLog) onLog('🎉 SFU fully connected!', 'success');
         return true;
 
     } catch (e) {
@@ -140,7 +134,7 @@ async function setupWebRTC(stream) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CONNECTION
+// CONNECTION - EVENT-BASED AUTH (NO CALLBACK)
 // ═══════════════════════════════════════════════════════════════════
 
 async function connectWebRTC(token, stream, callbacks) {
@@ -166,13 +160,6 @@ async function connectWebRTC(token, stream, callbacks) {
         return false;
     }
 
-    // Clean up existing socket
-    if (socket) {
-        socket.removeAllListeners();
-        socket.disconnect();
-        socket = null;
-    }
-
     socket = io(GATEWAY_URL, { 
         transports: ['websocket'],
         reconnection: true,
@@ -183,13 +170,13 @@ async function connectWebRTC(token, stream, callbacks) {
     return new Promise((resolve) => {
         let resolved = false;
         
-        // ✅ FIXED: Authenticate immediately on connect
+        // ✅ CONNECT HANDLER
         socket.on('connect', () => {
             if (onLog) onLog('✅ Gateway connected', 'success');
             if (onStatusChange) onStatusChange('Gateway Connected');
             startKeepAlive();
             
-            // ✅ SEND AUTHENTICATION IMMEDIATELY
+            // ✅ SEND AUTHENTICATION WITHOUT CALLBACK
             if (onLog) onLog('🔐 Authenticating with Gateway...', 'info');
             socket.emit('authenticate', { token: authToken });
             
@@ -203,18 +190,19 @@ async function connectWebRTC(token, stream, callbacks) {
             }, 10000);
         });
 
-        // ✅ Handle authentication response
+        // ✅ LISTEN FOR AUTHENTICATED EVENT (NOT CALLBACK)
         socket.on('authenticated', async (response) => {
             if (authTimeout) {
                 clearTimeout(authTimeout);
                 authTimeout = null;
             }
             
+            if (onLog) onLog('📨 Received authenticated event', 'debug');
+            
             if (response?.success) {
                 if (onLog) onLog(`✅ Authenticated as ${response.user_id?.slice(0, 8)}...`, 'success');
                 if (onLog) onLog(`🏠 Room: ${response.room_name}`, 'info');
                 
-                // Now set up WebRTC
                 const success = await setupWebRTC(stream);
                 isConnected = success;
                 
@@ -245,7 +233,6 @@ async function connectWebRTC(token, stream, callbacks) {
             stopKeepAlive();
             if (onStatusChange) onStatusChange('Disconnected');
             
-            // Auto-reconnect
             if (authToken && !reconnectTimer) {
                 reconnectTimer = setTimeout(() => {
                     reconnectTimer = null;
@@ -259,10 +246,6 @@ async function connectWebRTC(token, stream, callbacks) {
             if (data?.audio && onTTS) onTTS(data.audio);
             if (data?.transcript && onTranscript) onTranscript(data.transcript);
             if (data?.response && onResponse) onResponse(data.response);
-        });
-        
-        socket.on('error', (error) => {
-            if (onLog) onLog('Gateway error: ' + error, 'error');
         });
     });
 }
