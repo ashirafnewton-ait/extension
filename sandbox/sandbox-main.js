@@ -24,6 +24,13 @@ import {
     sendVADStatus,
     sendError,
     sendDisconnected,
+    sendTokenReceived,
+    sendNotesUpdated,
+    sendSettingsUpdated,
+    sendChatResponse,
+    sendCallStatus,
+    sendQuizResponse,
+    sendSummaryResponse,
     onMessage,
     getAuthToken,
     markReady
@@ -36,6 +43,12 @@ let currentMode = null; // 'sfu' or 'rest'
 let selectedVoice = 'en-US-AriaNeural';
 let webrtcAttempts = 0;
 const MAX_WEBRTC_ATTEMPTS = 2;
+let notes = [];
+let settings = {
+    theme: 'dark',
+    notifications: true,
+    defaultVoice: 'en-US-AriaNeural'
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // TTS CALLBACK
@@ -51,10 +64,8 @@ async function handleTTS(audioBase64) {
 
 async function startRESTMode() {
     try {
-        // Stop any existing WebRTC connection
         disconnectWebRTC();
         
-        // Get fresh microphone stream if needed
         if (!localStream) {
             localStream = await navigator.mediaDevices.getUserMedia({
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -62,11 +73,8 @@ async function startRESTMode() {
         }
 
         sendLog('🎤 Mic: ' + localStream.getAudioTracks()[0].label, 'success');
-
-        // Start REST recording
         startRESTRecording(localStream);
 
-        // Start VAD
         startVAD(localStream, {
             onSpeechStart: () => sendVADStatus(true),
             onSpeechEnd: () => {
@@ -110,7 +118,6 @@ async function startMic() {
     webrtcAttempts = 0;
 
     try {
-        // Get microphone stream
         localStream = await navigator.mediaDevices.getUserMedia({
             audio: { 
                 echoCancellation: true, 
@@ -120,15 +127,12 @@ async function startMic() {
         });
 
         sendLog('🎤 Mic: ' + localStream.getAudioTracks()[0].label, 'success');
-
-        // Try WebRTC first
         await attemptWebRTC(token);
 
     } catch (e) {
         sendLog('Failed to start: ' + e.message, 'error');
         sendError(e.message);
 
-        // Cleanup
         if (localStream) {
             localStream.getTracks().forEach(t => t.stop());
             localStream = null;
@@ -137,7 +141,7 @@ async function startMic() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ATTEMPT WEBRTC (with retry)
+// ATTEMPT WEBRTC
 // ═══════════════════════════════════════════════════════════════════
 
 async function attemptWebRTC(token) {
@@ -162,19 +166,15 @@ async function attemptWebRTC(token) {
             sendStatus('SFU Streaming');
             sendLog('✅ WebRTC SFU connected!', 'success');
 
-            // Start VAD for potential fallback
             startVAD(localStream, {
                 onSpeechStart: () => sendVADStatus(true),
                 onSpeechEnd: () => sendVADStatus(false)
             });
 
-            // Set up disconnect handler for auto-fallback
             setupWebRTCFallback(token);
-            
             return;
         }
 
-        // WebRTC failed
         handleWebRTCFailure(token);
 
     } catch (e) {
@@ -183,44 +183,30 @@ async function attemptWebRTC(token) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// HANDLE WEBRTC FAILURE
-// ═══════════════════════════════════════════════════════════════════
-
 function handleWebRTCFailure(token) {
     if (webrtcAttempts < MAX_WEBRTC_ATTEMPTS) {
         sendLog(`⏳ Retrying WebRTC in 2 seconds...`, 'warn');
         setTimeout(() => attemptWebRTC(token), 2000);
     } else {
-        sendLog('⚠️ WebRTC failed after ' + MAX_WEBRTC_ATTEMPTS + ' attempts, falling back to REST', 'warn');
+        sendLog('⚠️ WebRTC failed, falling back to REST', 'warn');
         startRESTMode();
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SETUP WEBRTC FALLBACK ON DISCONNECT
-// ═══════════════════════════════════════════════════════════════════
-
 function setupWebRTCFallback(token) {
-    // Monitor WebRTC connection state
     const checkInterval = setInterval(() => {
         if (currentMode === 'sfu' && !isWebRTCConnected()) {
             clearInterval(checkInterval);
             sendLog('🔌 WebRTC disconnected, falling back to REST', 'warn');
-            
-            // Don't switch if already in REST mode
             if (currentMode === 'sfu') {
                 startRESTMode();
             }
         }
-        
-        // Stop checking if mode changed
         if (currentMode !== 'sfu') {
             clearInterval(checkInterval);
         }
     }, 3000);
     
-    // Clean up interval after 60 seconds max
     setTimeout(() => clearInterval(checkInterval), 60000);
 }
 
@@ -230,23 +216,14 @@ function setupWebRTCFallback(token) {
 
 function stopMic() {
     sendLog('Stopping mic...', 'info');
-
     isActive = false;
     webrtcAttempts = 0;
 
-    // Stop WebRTC
     disconnectWebRTC();
-
-    // Stop REST
     stopRESTRecording();
-
-    // Stop VAD
     stopVAD();
-
-    // Clear TTS queue
     clearTTSQueue();
 
-    // Stop microphone
     if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
         localStream = null;
@@ -269,17 +246,78 @@ function setVoice(voice) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// HANDLE TOKEN UPDATE FROM EXTENSION
+// HANDLE TOKEN UPDATE
 // ═══════════════════════════════════════════════════════════════════
 
 function handleTokenUpdate(token) {
     sendLog('🔐 Token updated', 'info');
     setRestAuthToken(token);
-    
-    // If we're active in REST mode, update the token
-    if (isActive && currentMode === 'rest') {
-        setRestAuthToken(token);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ✅ RESPONSE HANDLERS (NEW)
+// ═══════════════════════════════════════════════════════════════════
+
+function handleTranscribe(msg) {
+    sendLog('📝 Transcribe requested', 'info');
+    // TODO: Implement actual transcription
+    sendTranscript('This is a test transcript response');
+}
+
+function handleChatMessage(msg) {
+    sendLog('💬 Chat message: ' + msg.text?.substring(0, 50), 'info');
+    // TODO: Call AI chat API
+    sendChatResponse('AI response to: ' + msg.text);
+    sendResponse('AI: I received your message!');
+}
+
+function handleSummarize(msg) {
+    sendLog('📄 Summarize requested', 'info');
+    // TODO: Call summarize API
+    sendSummaryResponse('This is a test summary of the text.');
+    sendResponse('📄 Summary: This is a test summary.');
+}
+
+function handleQuiz(msg) {
+    sendLog('📝 Quiz requested', 'info');
+    // TODO: Call quiz API
+    const quiz = [
+        { question: 'Test Q1?', options: ['A', 'B', 'C'], answer: 'A' }
+    ];
+    sendQuizResponse(quiz);
+    sendResponse('📝 Quiz generated! Check the panel.');
+}
+
+function handleGetNotes() {
+    sendLog('📋 Fetching notes...', 'info');
+    sendNotesUpdated(notes);
+}
+
+function handleSaveNote(msg) {
+    sendLog('💾 Saving note...', 'info');
+    if (msg.note) {
+        notes.push({ id: Date.now(), text: msg.note, timestamp: new Date().toISOString() });
     }
+    sendNotesUpdated(notes);
+}
+
+function handleUpdateSettings(msg) {
+    sendLog('⚙️ Updating settings...', 'info');
+    if (msg.settings) {
+        settings = { ...settings, ...msg.settings };
+    }
+    sendSettingsUpdated(settings);
+}
+
+function handleStartCall(msg) {
+    sendLog('📞 Starting call to: ' + msg.peerId, 'info');
+    sendCallStatus('calling', { peerId: msg.peerId });
+    // TODO: Implement WebRTC call
+}
+
+function handleEndCall(msg) {
+    sendLog('📞 Ending call: ' + msg.callId, 'info');
+    sendCallStatus('ended', { callId: msg.callId });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -289,7 +327,6 @@ function handleTokenUpdate(token) {
 async function init() {
     sendLog('🔄 Initializing sandbox...', 'info');
     
-    // Load Silero VAD
     try {
         await loadSileroVAD();
         sendLog('✅ VAD loaded', 'success');
@@ -297,7 +334,7 @@ async function init() {
         sendLog('⚠️ VAD failed to load: ' + e.message, 'warn');
     }
 
-    // Set up message handlers from extension
+    // Core message handlers
     onMessage('start_mic', startMic);
     onMessage('stop_mic', stopMic);
     onMessage('set_voice', (msg) => setVoice(msg.voice));
@@ -316,6 +353,17 @@ async function init() {
     });
     onMessage('token_updated', (msg) => handleTokenUpdate(msg.token));
 
+    // ✅ NEW: Response handlers
+    onMessage('transcribe', handleTranscribe);
+    onMessage('chat_message', handleChatMessage);
+    onMessage('summarize', handleSummarize);
+    onMessage('quiz', handleQuiz);
+    onMessage('get_notes', handleGetNotes);
+    onMessage('save_note', handleSaveNote);
+    onMessage('update_settings', handleUpdateSettings);
+    onMessage('start_call', handleStartCall);
+    onMessage('end_call', handleEndCall);
+
     // Set REST auth token when received
     const token = getAuthToken();
     if (token) {
@@ -325,7 +373,6 @@ async function init() {
         sendLog('⏳ Waiting for auth token...', 'warn');
     }
 
-    // Mark as ready
     markReady();
     sendLog('✅ Sandbox ready', 'success');
 
@@ -346,5 +393,4 @@ async function init() {
     };
 }
 
-// Start everything
 init();
