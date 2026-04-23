@@ -24,7 +24,7 @@
     
     <div>
         <strong>Logs:</strong>
-        <div id="logs" style="font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto; background: #f0f0f0; padding: 10px; margin-top: 10px;">
+        <div id="logs" style="font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto; background: #111; color: #0f0; padding: 10px; margin-top: 10px;">
             [--:--] Ready
         </div>
     </div>
@@ -44,7 +44,6 @@
             startRESTRecording, 
             stopRESTRecording 
         } from './sandbox/rest-client.js';
-        import { connectWebRTC, disconnectWebRTC } from './sandbox/webrtc-client.js';
         
         // DOM Elements
         const requestMicBtn = document.getElementById('requestMicBtn');
@@ -59,14 +58,12 @@
         let isActive = false;
         let authToken = null;
         
-        // Test token - get from Supabase
-        const TEST_TOKEN = null; // Will be set after auth
-        
         // Logging
         function log(message) {
             const time = new Date().toLocaleTimeString();
             logsEl.innerHTML += `<div>[${time}] ${message}</div>`;
             logsEl.scrollTop = logsEl.scrollHeight;
+            console.log(message);
         }
         
         function clearLogs() {
@@ -87,20 +84,42 @@
         
         // Request microphone permission
         async function requestMicPermission() {
+            log('🎤 Requesting microphone permission...');
+            log('   Browser should show permission popup...');
+            
             try {
-                log('🎤 Requesting microphone permission...');
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                log('✅ Microphone permission granted!');
-                log('   Device: ' + localStream.getAudioTracks()[0].label);
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                
+                localStream = stream;
+                log('✅ Microphone permission GRANTED!');
+                log('   Device: ' + stream.getAudioTracks()[0].label);
+                
                 requestMicBtn.disabled = true;
                 startBtn.disabled = false;
                 setStatus('Mic Ready');
             } catch (e) {
                 log('❌ Microphone denied: ' + e.message);
+                
+                if (e.name === 'NotAllowedError') {
+                    log('   ⚠️ Permission denied - click the lock icon in address bar to allow');
+                    log('   🔓 Or check site settings');
+                } else if (e.name === 'NotFoundError') {
+                    log('   ⚠️ No microphone found - please connect one');
+                } else if (e.name === 'NotReadableError') {
+                    log('   ⚠️ Microphone already in use by another app');
+                } else if (e.name === 'SecurityError') {
+                    log('   ⚠️ Microphone requires HTTPS or localhost');
+                }
             }
         }
         
-        // Start REST mode directly (simpler for testing)
+        // Start REST mode
         async function startRESTMode() {
             if (!localStream) {
                 log('❌ No microphone permission');
@@ -109,9 +128,11 @@
             
             log('🚀 Starting REST mode...');
             
-            // Set auth token if available
+            // Set auth token
             if (authToken) {
                 setRestAuthToken(authToken);
+            } else {
+                log('⚠️ No auth token - REST may fail');
             }
             
             // Start recording
@@ -123,8 +144,8 @@
                 onSpeechEnd: () => {
                     log('🔇 Silence detected, sending...');
                     sendAccumulatedAudio({
-                        onTranscript: (text) => log('📝 Transcript: ' + text),
-                        onResponse: (text) => log('🤖 Response: ' + text),
+                        onTranscript: (text) => log('📝 You: ' + text),
+                        onResponse: (text) => log('🤖 Surf: ' + text),
                         onTTS: handleTTS,
                         onLog: log
                     });
@@ -157,10 +178,19 @@
         async function init() {
             log('🚀 Surf Sandbox Test');
             
+            // Diagnostic checks
+            log('📍 Location: ' + location.protocol + '//' + location.hostname);
+            
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost' && !location.hostname.includes('127.0.0.1')) {
+                log('❌ Microphone requires HTTPS or localhost!');
+                log('   Please use: python -m http.server 3000');
+                log('   Then open: http://localhost:3000');
+            }
+            
             // Load Silero VAD
             log('📦 Loading Silero VAD...');
-            await loadSileroVAD();
-            log('✅ VAD ready: ' + isVADReady());
+            const vadLoaded = await loadSileroVAD();
+            log('✅ VAD ready: ' + vadLoaded);
             
             // Get test token from Supabase
             try {
@@ -179,7 +209,7 @@
                     setRestAuthToken(authToken);
                     log('✅ Authenticated as surf@testuser.com');
                 } else {
-                    log('⚠️ Auth failed - REST may not work');
+                    log('⚠️ Auth failed - REST may not work (status: ' + res.status + ')');
                 }
             } catch (e) {
                 log('⚠️ Auth error: ' + e.message);
@@ -195,6 +225,9 @@
             clearLogsBtn.addEventListener('click', clearLogs);
             
             log('✅ Ready - Click "Request Mic Permission"');
+            
+            // Expose for debugging
+            window.debug = { log, requestMicPermission, startRESTMode, stop };
         }
         
         init();
