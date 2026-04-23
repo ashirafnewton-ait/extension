@@ -8,21 +8,26 @@
     <h1>🌊 Surf Sandbox</h1>
     
     <div>
-        <span id="statusText">⚡ Ready</span>
+        <button id="requestMicBtn">🎤 Request Mic Permission</button>
+        <button id="startBtn" disabled>▶️ Start</button>
+        <button id="stopBtn" disabled>⏹️ Stop</button>
+        <button id="clearLogsBtn">🗑️ Clear Logs</button>
     </div>
     
-    <div style="margin: 20px 0;">
-        <button id="startBtn">🎤 Start Mic</button>
-        <button id="stopBtn" disabled>⏹️ Stop</button>
-        <button id="testAuthBtn">🔐 Test Auth</button>
-    </div>
+    <hr>
     
     <div>
-        <strong>📝 Logs:</strong>
-        <button id="clearLogsBtn">Clear</button>
+        <strong>Status:</strong> <span id="status">Ready</span>
     </div>
     
-    <pre id="logContainer" style="background:#000; padding:10px; height:400px; overflow-y:scroll; border:1px solid #333;">[--:--] Ready</pre>
+    <hr>
+    
+    <div>
+        <strong>Logs:</strong>
+        <div id="logs" style="font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto; background: #f0f0f0; padding: 10px; margin-top: 10px;">
+            [--:--] Ready
+        </div>
+    </div>
 
     <!-- Libraries -->
     <script src="lib/socket.io.min.js"></script>
@@ -30,152 +35,169 @@
     
     <!-- Sandbox Modules -->
     <script type="module">
-        import { loadSileroVAD, startVAD, stopVAD } from './sandbox/vad.js';
-        import { playTTSAudio } from './sandbox/tts.js';
-        import { setAuthToken, startRESTRecording, stopRESTRecording, sendAccumulatedAudio } from './sandbox/rest-client.js';
+        import { loadSileroVAD, startVAD, stopVAD, isVADReady } from './sandbox/vad.js';
+        import { playTTSAudio, clearTTSQueue } from './sandbox/tts.js';
+        import { 
+            setAuthToken as setRestAuthToken, 
+            setVoice,
+            sendAccumulatedAudio, 
+            startRESTRecording, 
+            stopRESTRecording 
+        } from './sandbox/rest-client.js';
         import { connectWebRTC, disconnectWebRTC } from './sandbox/webrtc-client.js';
         
-        // Supabase config
-        const SUPABASE_URL = 'https://ljksgzttnufecxohwtwm.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxqa3NnenR0bnVmZWN4b2h3dHdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxOTc1NzQsImV4cCI6MjA5MTc3MzU3NH0.jSnVFEe6w-fUA39iD7o9BP0EygB7yejofuU4GUbK6Bk';
-        
-        // State
-        let authToken = null;
-        let localStream = null;
-        let isActive = false;
-        
-        // DOM
-        const statusText = document.getElementById('statusText');
+        // DOM Elements
+        const requestMicBtn = document.getElementById('requestMicBtn');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const testAuthBtn = document.getElementById('testAuthBtn');
-        const logContainer = document.getElementById('logContainer');
         const clearLogsBtn = document.getElementById('clearLogsBtn');
+        const statusEl = document.getElementById('status');
+        const logsEl = document.getElementById('logs');
+        
+        // State
+        let localStream = null;
+        let isActive = false;
+        let authToken = null;
+        
+        // Test token - get from Supabase
+        const TEST_TOKEN = null; // Will be set after auth
         
         // Logging
         function log(message) {
             const time = new Date().toLocaleTimeString();
-            logContainer.innerHTML += `[${time}] ${message}\n`;
-            logContainer.scrollTop = logContainer.scrollHeight;
+            logsEl.innerHTML += `<div>[${time}] ${message}</div>`;
+            logsEl.scrollTop = logsEl.scrollHeight;
         }
         
-        clearLogsBtn.onclick = () => logContainer.innerHTML = '[--:--] Ready\n';
+        function clearLogs() {
+            logsEl.innerHTML = '[--:--] Logs cleared';
+        }
         
-        // Auth
-        async function testAuth() {
-            log('🔐 Authenticating...');
+        function setStatus(text) {
+            statusEl.textContent = text;
+            log('📊 Status: ' + text);
+        }
+        
+        // TTS callback
+        async function handleTTS(audioBase64) {
+            log('🔊 Playing TTS...');
+            await playTTSAudio(audioBase64);
+            log('✅ TTS finished');
+        }
+        
+        // Request microphone permission
+        async function requestMicPermission() {
             try {
+                log('🎤 Requesting microphone permission...');
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log('✅ Microphone permission granted!');
+                log('   Device: ' + localStream.getAudioTracks()[0].label);
+                requestMicBtn.disabled = true;
+                startBtn.disabled = false;
+                setStatus('Mic Ready');
+            } catch (e) {
+                log('❌ Microphone denied: ' + e.message);
+            }
+        }
+        
+        // Start REST mode directly (simpler for testing)
+        async function startRESTMode() {
+            if (!localStream) {
+                log('❌ No microphone permission');
+                return;
+            }
+            
+            log('🚀 Starting REST mode...');
+            
+            // Set auth token if available
+            if (authToken) {
+                setRestAuthToken(authToken);
+            }
+            
+            // Start recording
+            startRESTRecording(localStream);
+            
+            // Start VAD
+            startVAD(localStream, {
+                onSpeechStart: () => log('🎙️ Speaking...'),
+                onSpeechEnd: () => {
+                    log('🔇 Silence detected, sending...');
+                    sendAccumulatedAudio({
+                        onTranscript: (text) => log('📝 Transcript: ' + text),
+                        onResponse: (text) => log('🤖 Response: ' + text),
+                        onTTS: handleTTS,
+                        onLog: log
+                    });
+                }
+            });
+            
+            isActive = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            setStatus('REST Mode Active');
+            log('✅ REST mode active - speak and pause 1.5s');
+        }
+        
+        // Stop
+        function stop() {
+            log('⏹️ Stopping...');
+            
+            stopRESTRecording();
+            stopVAD();
+            clearTTSQueue();
+            
+            isActive = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            setStatus('Stopped');
+            log('✅ Stopped');
+        }
+        
+        // Initialize
+        async function init() {
+            log('🚀 Surf Sandbox Test');
+            
+            // Load Silero VAD
+            log('📦 Loading Silero VAD...');
+            await loadSileroVAD();
+            log('✅ VAD ready: ' + isVADReady());
+            
+            // Get test token from Supabase
+            try {
+                const SUPABASE_URL = 'https://ljksgzttnufecxohwtwm.supabase.co';
+                const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxqa3NnenR0bnVmZWN4b2h3dHdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxOTc1NzQsImV4cCI6MjA5MTc3MzU3NH0.jSnVFEe6w-fUA39iD7o9BP0EygB7yejofuU4GUbK6Bk';
+                
                 const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
                     method: 'POST',
                     headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email: 'surf@testuser.com', password: 'Test1234!' })
                 });
-                const data = await res.json();
-                authToken = data.access_token;
-                setAuthToken(authToken);
-                log('✅ Got token: ' + authToken.slice(0, 30) + '...');
-                statusText.textContent = '🔐 Authenticated';
-            } catch (e) {
-                log('❌ Auth failed: ' + e.message);
-            }
-        }
-        
-        // TTS callback
-        async function handleTTS(audio) {
-            log('🔊 Playing TTS...');
-            await playTTSAudio(audio);
-        }
-        
-        // Start mic
-        async function startMic() {
-            if (!authToken) {
-                log('❌ No auth token - click Test Auth first');
-                return;
-            }
-            
-            startBtn.disabled = true;
-            log('🎤 Starting mic...');
-            
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                log('✅ Mic ready: ' + localStream.getAudioTracks()[0].label);
                 
-                // Load VAD
-                await loadSileroVAD();
-                
-                // Try WebRTC
-                log('📡 Trying WebRTC...');
-                const webrtcOk = await connectWebRTC(authToken, localStream, {
-                    onStatusChange: (s) => { statusText.textContent = s; log('Status: ' + s); },
-                    onLog: log,
-                    onTTS: handleTTS,
-                    onTranscript: (t) => log('📝 ' + t),
-                    onResponse: (r) => log('🤖 ' + r)
-                });
-                
-                if (webrtcOk) {
-                    log('✅ WebRTC connected!');
-                    startVAD(localStream, {
-                        onSpeechStart: () => log('🎙️ Speaking...'),
-                        onSpeechEnd: () => log('🔇 Silence')
-                    });
+                if (res.ok) {
+                    const data = await res.json();
+                    authToken = data.access_token;
+                    setRestAuthToken(authToken);
+                    log('✅ Authenticated as surf@testuser.com');
                 } else {
-                    log('⚠️ WebRTC failed, using REST');
-                    startRESTRecording(localStream);
-                    startVAD(localStream, {
-                        onSpeechStart: () => log('🎙️ Speaking...'),
-                        onSpeechEnd: () => {
-                            log('📤 Sending...');
-                            sendAccumulatedAudio({
-                                onTranscript: (t) => log('📝 ' + t),
-                                onResponse: (r) => log('🤖 ' + r),
-                                onTTS: handleTTS,
-                                onLog: log
-                            });
-                        }
-                    });
+                    log('⚠️ Auth failed - REST may not work');
                 }
-                
-                isActive = true;
-                stopBtn.disabled = false;
-                startBtn.textContent = '🎤 Active';
-                
             } catch (e) {
-                log('❌ Failed: ' + e.message);
-                startBtn.disabled = false;
-            }
-        }
-        
-        // Stop mic
-        function stopMic() {
-            log('⏹️ Stopping...');
-            
-            disconnectWebRTC();
-            stopRESTRecording();
-            stopVAD();
-            
-            if (localStream) {
-                localStream.getTracks().forEach(t => t.stop());
-                localStream = null;
+                log('⚠️ Auth error: ' + e.message);
             }
             
-            isActive = false;
-            startBtn.textContent = '🎤 Start Mic';
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            statusText.textContent = authToken ? '🔐 Ready' : '⚡ Ready';
-            log('✅ Stopped');
+            // Set default voice
+            setVoice('en-US-AriaNeural');
+            
+            // Event listeners
+            requestMicBtn.addEventListener('click', requestMicPermission);
+            startBtn.addEventListener('click', startRESTMode);
+            stopBtn.addEventListener('click', stop);
+            clearLogsBtn.addEventListener('click', clearLogs);
+            
+            log('✅ Ready - Click "Request Mic Permission"');
         }
         
-        // Event listeners
-        testAuthBtn.onclick = testAuth;
-        startBtn.onclick = startMic;
-        stopBtn.onclick = stopMic;
-        
-        // Init
-        log('🌊 Sandbox ready');
-        window.testAuth = testAuth;
-        window.startMic = startMic;
+        init();
     </script>
 </body>
 </html>
