@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// WEBRTC CLIENT MODULE - EVENT-BASED AUTHENTICATION
+// WEBRTC CLIENT MODULE (Mediasoup)
 // ═══════════════════════════════════════════════════════════════════
 
 const GATEWAY_URL = 'https://surf-gateway.onrender.com';
@@ -13,6 +13,7 @@ let authToken = null;
 let reconnectTimer = null;
 let pingInterval = null;
 let authTimeout = null;
+let isConnecting = false;
 
 // Callbacks
 let onStatusChange = null;
@@ -71,7 +72,7 @@ async function createProducerTransport() {
 async function setupWebRTC(stream) {
     try {
         if (onLog) onLog('📡 Requesting router capabilities...', 'info');
-        
+
         const caps = await requestRouterCapabilities();
         device = new mediasoupClient.Device();
         await device.load({ routerRtpCapabilities: caps });
@@ -79,7 +80,7 @@ async function setupWebRTC(stream) {
 
         if (onLog) onLog('🔗 Creating producer transport...', 'info');
         const transportInfo = await createProducerTransport();
-        
+
         producerTransport = device.createSendTransport({
             id: transportInfo.id,
             iceParameters: transportInfo.iceParameters,
@@ -134,22 +135,29 @@ async function setupWebRTC(stream) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CONNECTION - EVENT-BASED AUTH (NO CALLBACK)
+// CONNECTION
 // ═══════════════════════════════════════════════════════════════════
 
 async function connectWebRTC(token, stream, callbacks) {
+    // ✅ Prevent duplicate connections
+    if (isConnecting) {
+        if (callbacks.onLog) callbacks.onLog('⚠️ Already connecting, ignoring duplicate', 'warn');
+        return false;
+    }
+    isConnecting = true;
+
     authToken = token;
     onStatusChange = callbacks.onStatusChange;
     onLog = callbacks.onLog;
     onTTS = callbacks.onTTS;
     onTranscript = callbacks.onTranscript;
     onResponse = callbacks.onResponse;
-    
+
     if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
     }
-    
+
     if (authTimeout) {
         clearTimeout(authTimeout);
         authTimeout = null;
@@ -157,10 +165,11 @@ async function connectWebRTC(token, stream, callbacks) {
 
     if (!authToken) {
         if (onLog) onLog('❌ No auth token', 'error');
+        isConnecting = false;
         return false;
     }
 
-    socket = io(GATEWAY_URL, { 
+    socket = io(GATEWAY_URL, {
         transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: 10,
@@ -169,51 +178,50 @@ async function connectWebRTC(token, stream, callbacks) {
 
     return new Promise((resolve) => {
         let resolved = false;
-        
-        // ✅ CONNECT HANDLER
+
         socket.on('connect', () => {
             if (onLog) onLog('✅ Gateway connected', 'success');
             if (onStatusChange) onStatusChange('Gateway Connected');
             startKeepAlive();
-            
-            // ✅ SEND AUTHENTICATION WITHOUT CALLBACK
+
             if (onLog) onLog('🔐 Authenticating with Gateway...', 'info');
             socket.emit('authenticate', { token: authToken });
-            
-            // Set timeout for authentication
+
             authTimeout = setTimeout(() => {
                 if (!resolved) {
                     resolved = true;
+                    isConnecting = false;
                     if (onLog) onLog('❌ Authentication timeout', 'error');
                     resolve(false);
                 }
             }, 10000);
         });
 
-        // ✅ LISTEN FOR AUTHENTICATED EVENT (NOT CALLBACK)
         socket.on('authenticated', async (response) => {
             if (authTimeout) {
                 clearTimeout(authTimeout);
                 authTimeout = null;
             }
-            
+
             if (onLog) onLog('📨 Received authenticated event', 'debug');
-            
+
             if (response?.success) {
                 if (onLog) onLog(`✅ Authenticated as ${response.user_id?.slice(0, 8)}...`, 'success');
                 if (onLog) onLog(`🏠 Room: ${response.room_name}`, 'info');
-                
+
                 const success = await setupWebRTC(stream);
                 isConnected = success;
-                
+
                 if (!resolved) {
                     resolved = true;
+                    isConnecting = false;
                     resolve(success);
                 }
             } else {
                 if (onLog) onLog('❌ Auth failed: ' + (response?.error || 'Unknown'), 'error');
                 if (!resolved) {
                     resolved = true;
+                    isConnecting = false;
                     resolve(false);
                 }
             }
@@ -223,6 +231,7 @@ async function connectWebRTC(token, stream, callbacks) {
             if (onLog) onLog('Connection error: ' + e.message, 'error');
             if (!resolved) {
                 resolved = true;
+                isConnecting = false;
                 resolve(false);
             }
         });
@@ -232,10 +241,11 @@ async function connectWebRTC(token, stream, callbacks) {
             isConnected = false;
             stopKeepAlive();
             if (onStatusChange) onStatusChange('Disconnected');
-            
+
             if (authToken && !reconnectTimer) {
                 reconnectTimer = setTimeout(() => {
                     reconnectTimer = null;
+                    isConnecting = false;
                     if (onLog) onLog('🔄 Reconnecting...', 'info');
                     connectWebRTC(authToken, stream, callbacks);
                 }, 2000);
@@ -259,12 +269,12 @@ function disconnectWebRTC() {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
     }
-    
+
     if (authTimeout) {
         clearTimeout(authTimeout);
         authTimeout = null;
     }
-    
+
     stopKeepAlive();
 
     if (audioProducer) {
@@ -280,9 +290,10 @@ function disconnectWebRTC() {
         socket.disconnect();
         socket = null;
     }
-    
+
     device = null;
     isConnected = false;
+    isConnecting = false;
 }
 
 function isWebRTCConnected() {
