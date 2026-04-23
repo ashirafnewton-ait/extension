@@ -1,18 +1,342 @@
 <!DOCTYPE html>
-<html>
-<head><title>Mic Test</title></head>
-<body>
-    <button onclick="testMic()">Test Microphone</button>
-    <script>
-        async function testMic() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                alert('✅ Microphone works!');
-                stream.getTracks().forEach(t => t.stop());
-            } catch(e) {
-                alert('❌ Microphone denied: ' + e.message);
-            }
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surf Voice - Gateway Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0a0f0f;
+            color: #00ff9d;
+            padding: 20px;
+            margin: 0;
         }
+        h1 {
+            color: #00ffcc;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        button {
+            background: #1a2332;
+            color: #00ff9d;
+            border: 1px solid #2a3a4a;
+            padding: 12px 20px;
+            font-family: monospace;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #2a3a4a;
+            border-color: #00ff9d;
+        }
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .log-container {
+            background: #000;
+            border: 1px solid #1a2332;
+            border-radius: 4px;
+            padding: 15px;
+            height: 500px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .log-entry {
+            padding: 3px 0;
+            border-bottom: 1px solid #0d1117;
+        }
+        .log-time {
+            color: #4a5a6a;
+            margin-right: 10px;
+        }
+        .log-info { color: #00ff9d; }
+        .log-success { color: #00ffcc; }
+        .log-error { color: #ff4444; }
+        .log-warn { color: #ffaa00; }
+        .token-input {
+            width: 100%;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #0d1117;
+            border: 1px solid #2a3a4a;
+            color: #00ff9d;
+            font-family: monospace;
+            border-radius: 4px;
+        }
+        .status {
+            margin-bottom: 15px;
+            padding: 8px 12px;
+            background: #0d1117;
+            border-radius: 4px;
+            display: inline-block;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff4444;
+            margin-right: 8px;
+        }
+        .status-dot.connected {
+            background: #00ff9d;
+            box-shadow: 0 0 8px #00ff9d;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌊 Surf Voice - Gateway Test</h1>
+    
+    <div class="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Disconnected</span>
+    </div>
+    
+    <input type="text" class="token-input" id="tokenInput" placeholder="Paste Supabase JWT token here..." />
+    
+    <div class="controls">
+        <button id="authBtn">🔐 1. Authenticate</button>
+        <button id="capsBtn" disabled>📡 2. Get Router Caps</button>
+        <button id="transportBtn" disabled>🔗 3. Create Producer Transport</button>
+        <button id="connectBtn" disabled>✅ 4. Connect Transport</button>
+    </div>
+    
+    <div class="log-container" id="logContainer">
+        <div class="log-entry"><span class="log-time">[--:--:--]</span> <span class="log-info">Ready. Paste token and click Authenticate.</span></div>
+    </div>
+
+    <!-- Libraries -->
+    <script src="lib/socket.io.min.js"></script>
+    
+    <script>
+        const GATEWAY_URL = 'https://surf-gateway.onrender.com';
+        
+        let socket = null;
+        let isConnected = false;
+        let isAuthenticated = false;
+        let routerCaps = null;
+        let producerTransport = null;
+        let transportInfo = null;
+        
+        // DOM Elements
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const tokenInput = document.getElementById('tokenInput');
+        const authBtn = document.getElementById('authBtn');
+        const capsBtn = document.getElementById('capsBtn');
+        const transportBtn = document.getElementById('transportBtn');
+        const connectBtn = document.getElementById('connectBtn');
+        const logContainer = document.getElementById('logContainer');
+        
+        // ═══════════════════════════════════════════════════════════
+        // LOGGING
+        // ═══════════════════════════════════════════════════════════
+        
+        function log(message, type = 'info') {
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${message}</span>`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+        
+        function updateStatus(connected, text) {
+            isConnected = connected;
+            statusDot.className = connected ? 'status-dot connected' : 'status-dot';
+            statusText.textContent = text || (connected ? 'Connected' : 'Disconnected');
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // CONNECT SOCKET
+        // ═══════════════════════════════════════════════════════════
+        
+        function ensureConnection() {
+            if (socket && socket.connected) return true;
+            
+            log('📡 Connecting to Gateway...', 'info');
+            socket = io(GATEWAY_URL, { transports: ['websocket'] });
+            
+            socket.on('connect', () => {
+                log('✅ Socket connected! SID: ' + socket.id, 'success');
+                updateStatus(true);
+                authBtn.disabled = false;
+            });
+            
+            socket.on('connect_error', (e) => {
+                log('❌ Connection error: ' + e.message, 'error');
+                updateStatus(false, 'Error');
+            });
+            
+            socket.on('disconnect', (reason) => {
+                log('🔌 Disconnected: ' + reason, 'warn');
+                updateStatus(false);
+                isAuthenticated = false;
+                capsBtn.disabled = true;
+                transportBtn.disabled = true;
+                connectBtn.disabled = true;
+            });
+            
+            return false;
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // 1. AUTHENTICATE
+        // ═══════════════════════════════════════════════════════════
+        
+        async function authenticate() {
+            const token = tokenInput.value.trim();
+            if (!token) {
+                log('❌ Please paste a JWT token', 'error');
+                return;
+            }
+            
+            ensureConnection();
+            
+            if (!socket || !socket.connected) {
+                log('⏳ Waiting for connection...', 'warn');
+                setTimeout(authenticate, 500);
+                return;
+            }
+            
+            log('🔐 Sending authenticate...', 'info');
+            
+            socket.emit('authenticate', { token }, (response) => {
+                if (response?.success) {
+                    isAuthenticated = true;
+                    log(`✅ Authenticated! User: ${response.user_id?.slice(0, 8)}...`, 'success');
+                    log(`   Session: ${response.session_id}`, 'info');
+                    log(`   Room: ${response.room_name}`, 'info');
+                    
+                    capsBtn.disabled = false;
+                    authBtn.disabled = true;
+                    authBtn.textContent = '🔐 Authenticated ✅';
+                } else {
+                    log('❌ Auth failed: ' + (response?.error || 'Unknown error'), 'error');
+                }
+            });
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // 2. GET ROUTER CAPABILITIES
+        // ═══════════════════════════════════════════════════════════
+        
+        async function getRouterCapabilities() {
+            if (!isAuthenticated) {
+                log('❌ Authenticate first', 'error');
+                return;
+            }
+            
+            log('📡 Requesting router capabilities...', 'info');
+            
+            socket.emit('getRouterRtpCapabilities');
+            
+            socket.once('routerRtpCapabilities', (caps) => {
+                if (caps?.error) {
+                    log('❌ Router caps error: ' + caps.error, 'error');
+                    return;
+                }
+                
+                routerCaps = caps;
+                const codecs = caps.codecs?.map(c => c.mimeType).join(', ') || 'none';
+                log('✅ Router capabilities received!', 'success');
+                log(`   Codecs: ${codecs}`, 'info');
+                
+                transportBtn.disabled = false;
+                capsBtn.disabled = true;
+                capsBtn.textContent = '📡 Caps Received ✅';
+            });
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // 3. CREATE PRODUCER TRANSPORT
+        // ═══════════════════════════════════════════════════════════
+        
+        async function createTransport() {
+            if (!routerCaps) {
+                log('❌ Get router capabilities first', 'error');
+                return;
+            }
+            
+            log('🔗 Creating producer transport...', 'info');
+            
+            socket.emit('createProducerTransport', (response) => {
+                if (response?.error) {
+                    log('❌ Transport creation failed: ' + response.error, 'error');
+                    return;
+                }
+                
+                transportInfo = response;
+                log('✅ Producer transport created!', 'success');
+                log(`   ID: ${response.id?.slice(0, 20)}...`, 'info');
+                log(`   ICE Candidates: ${response.iceCandidates?.length || 0}`, 'info');
+                
+                connectBtn.disabled = false;
+                transportBtn.disabled = true;
+                transportBtn.textContent = '🔗 Transport Created ✅';
+            });
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // 4. CONNECT TRANSPORT
+        // ═══════════════════════════════════════════════════════════
+        
+        async function connectTransport() {
+            if (!transportInfo) {
+                log('❌ Create transport first', 'error');
+                return;
+            }
+            
+            log('✅ Connecting transport...', 'info');
+            
+            socket.emit('connectProducerTransport', { 
+                dtlsParameters: transportInfo.dtlsParameters 
+            }, (response) => {
+                if (response?.error) {
+                    log('❌ Connect failed: ' + response.error, 'error');
+                    return;
+                }
+                
+                producerTransport = transportInfo;
+                log('✅ Transport connected!', 'success');
+                log('🎉 All 4 steps complete! Ready to produce audio.', 'success');
+                
+                connectBtn.disabled = true;
+                connectBtn.textContent = '✅ Connected ✅';
+            });
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // INIT
+        // ═══════════════════════════════════════════════════════════
+        
+        authBtn.addEventListener('click', authenticate);
+        capsBtn.addEventListener('click', getRouterCapabilities);
+        transportBtn.addEventListener('click', createTransport);
+        connectBtn.addEventListener('click', connectTransport);
+        
+        // Auto-fill token if in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const tokenParam = urlParams.get('token');
+        if (tokenParam) {
+            tokenInput.value = tokenParam;
+            log('🔐 Token loaded from URL', 'info');
+        }
+        
+        log('Test page ready', 'success');
+        log('Gateway: ' + GATEWAY_URL, 'info');
     </script>
 </body>
 </html>
