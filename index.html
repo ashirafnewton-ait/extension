@@ -1,410 +1,181 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Surf Voice Sandbox</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Courier New', monospace;
-            background: #0a0f0f;
-            color: #00ff9d;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        
-        .container {
-            width: 100%;
-            max-width: 800px;
-            background: #0d1117;
-            border: 1px solid #1a2332;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        
-        .header {
-            padding: 20px;
-            border-bottom: 1px solid #1a2332;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        
-        h1 {
-            font-size: 20px;
-            color: #00ffcc;
-            text-shadow: 0 0 10px rgba(0, 255, 204, 0.3);
-        }
-        
-        .status-section {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        #status {
-            font-size: 13px;
-            padding: 6px 14px;
-            background: #1a2332;
-            border-radius: 20px;
-        }
-        
-        .mode-badge {
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: bold;
-            background: #1a2332;
-        }
-        
-        .mode-sfu { 
-            color: #00ffcc; 
-            background: rgba(0, 255, 204, 0.1);
-        }
-        .mode-rest { 
-            color: #ffaa00; 
-            background: rgba(255, 170, 0, 0.1);
-        }
-        
-        .log-header {
-            padding: 12px 20px;
-            background: #0a0f0f;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid #1a2332;
-            cursor: pointer;
-            user-select: none;
-        }
-        
-        .log-header:hover {
-            background: #11181f;
-        }
-        
-        .log-header span {
-            font-size: 13px;
-            color: #6b7a8f;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .log-toggle {
-            color: #00ff9d;
-            font-size: 16px;
-            transition: transform 0.2s;
-        }
-        
-        .log-container {
-            max-height: 400px;
-            overflow-y: auto;
-            padding: 15px;
-            background: #050a0a;
-            font-size: 12px;
-            line-height: 1.6;
-            transition: max-height 0.3s, padding 0.3s;
-        }
-        
-        .log-container.collapsed {
-            max-height: 0;
-            padding: 0 15px;
-        }
-        
-        .log-entry {
-            padding: 4px 0;
-            border-bottom: 1px solid #0d1117;
-            display: flex;
-        }
-        
-        .log-time {
-            color: #4a5a6a;
-            margin-right: 12px;
-            flex-shrink: 0;
-        }
-        
-        .log-message {
-            word-break: break-word;
-        }
-        
-        .log-info { color: #00ff9d; }
-        .log-success { color: #00ffcc; }
-        .log-error { color: #ff4444; }
-        .log-warn { color: #ffaa00; }
-        .log-transcript { color: #ffffff; }
-        .log-response { color: #cc66ff; }
-        
-        .log-actions {
-            display: flex;
-            gap: 10px;
-        }
-        
-        .log-btn {
-            background: none;
-            border: 1px solid #2a3a4a;
-            color: #6b7a8f;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .log-btn:hover {
-            background: #1a2332;
-            color: #00ff9d;
-            border-color: #00ff9d;
-        }
-        
-        .debug-info {
-            padding: 10px 20px;
-            background: #0a0f0f;
-            border-top: 1px solid #1a2332;
-            font-size: 11px;
-            color: #4a5a6a;
-            display: flex;
-            justify-content: space-between;
-        }
-        
-        ::-webkit-scrollbar {
-            width: 4px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: #0a0f0f;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: #2a3a4a;
-            border-radius: 2px;
-        }
-    </style>
-    
-    <!-- Core Libraries -->
-    <script src="lib/socket.io.min.js"></script>
-    <script src="lib/mediasoup-client.bundle.js"></script>
+    <title>Surf Sandbox Test</title>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🌊 Surf Voice Sandbox</h1>
-            <div class="status-section">
-                <div id="status">⚡ Initializing</div>
-                <span id="modeBadge" class="mode-badge"></span>
-            </div>
-        </div>
-        
-        <div class="log-header" id="logHeader" onclick="toggleLogs()">
-            <span>📋 Logs (<span id="logCount">0</span>)</span>
-            <span class="log-toggle" id="logToggle">▼</span>
-        </div>
-        
-        <div class="log-container" id="logContainer">
-            <div class="log-entry">
-                <span class="log-time">[--:--]</span>
-                <span class="log-message log-info">Sandbox initializing...</span>
-            </div>
-        </div>
-        
-        <div class="debug-info">
-            <span id="debugInfo">Ready for connection</span>
-            <div class="log-actions">
-                <button class="log-btn" onclick="clearLogs()">Clear</button>
-                <button class="log-btn" onclick="exportLogs()">Export</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Load Sandbox Modules -->
-    <script type="module">
-        import './sandbox/sandbox-main.js';
-        
-        // Make functions globally available for onclick handlers
-        window.toggleLogs = toggleLogs;
-        window.clearLogs = clearLogs;
-        window.exportLogs = exportLogs;
-        
-        console.log('🌊 Surf Voice Sandbox loaded');
-    </script>
+    <h1>🌊 Surf Sandbox</h1>
     
-    <script>
-        // ═══════════════════════════════════════════════════════════════════
-        // LOG MANAGEMENT
-        // ═══════════════════════════════════════════════════════════════════
+    <div>
+        <span id="statusText">⚡ Ready</span>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <button id="startBtn">🎤 Start Mic</button>
+        <button id="stopBtn" disabled>⏹️ Stop</button>
+        <button id="testAuthBtn">🔐 Test Auth</button>
+    </div>
+    
+    <div>
+        <strong>📝 Logs:</strong>
+        <button id="clearLogsBtn">Clear</button>
+    </div>
+    
+    <pre id="logContainer" style="background:#000; padding:10px; height:400px; overflow-y:scroll; border:1px solid #333;">[--:--] Ready</pre>
+
+    <!-- Libraries -->
+    <script src="lib/socket.io.min.js"></script>
+    <script src="lib/mediasoup-client.bundle.js"></script>
+    
+    <!-- Sandbox Modules -->
+    <script type="module">
+        import { loadSileroVAD, startVAD, stopVAD } from './sandbox/vad.js';
+        import { playTTSAudio } from './sandbox/tts.js';
+        import { setAuthToken, startRESTRecording, stopRESTRecording, sendAccumulatedAudio } from './sandbox/rest-client.js';
+        import { connectWebRTC, disconnectWebRTC } from './sandbox/webrtc-client.js';
         
-        let logsCollapsed = false;
-        let logEntries = [];
-        const MAX_LOGS = 200;
+        // Supabase config
+        const SUPABASE_URL = 'https://ljksgzttnufecxohwtwm.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxqa3NnenR0bnVmZWN4b2h3dHdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxOTc1NzQsImV4cCI6MjA5MTc3MzU3NH0.jSnVFEe6w-fUA39iD7o9BP0EygB7yejofuU4GUbK6Bk';
         
-        const statusEl = document.getElementById('status');
-        const modeBadge = document.getElementById('modeBadge');
-        const debugInfo = document.getElementById('debugInfo');
+        // State
+        let authToken = null;
+        let localStream = null;
+        let isActive = false;
+        
+        // DOM
+        const statusText = document.getElementById('statusText');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const testAuthBtn = document.getElementById('testAuthBtn');
         const logContainer = document.getElementById('logContainer');
-        const logCountSpan = document.getElementById('logCount');
+        const clearLogsBtn = document.getElementById('clearLogsBtn');
         
-        // ═══════════════════════════════════════════════════════════════════
-        // ADD LOG ENTRY
-        // ═══════════════════════════════════════════════════════════════════
-        
-        function addLog(message, type = 'info') {
-            const time = new Date().toLocaleTimeString('en-US', { 
-                hour12: false, 
-                hour: '2-digit', 
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            
-            const entry = { time, message, type };
-            logEntries.push(entry);
-            
-            // Trim if too many
-            if (logEntries.length > MAX_LOGS) {
-                logEntries.shift();
-            }
-            
-            // Update display
-            renderLogs();
-            
-            // Update count
-            logCountSpan.textContent = logEntries.length;
+        // Logging
+        function log(message) {
+            const time = new Date().toLocaleTimeString();
+            logContainer.innerHTML += `[${time}] ${message}\n`;
+            logContainer.scrollTop = logContainer.scrollHeight;
         }
         
-        function renderLogs() {
-            const html = logEntries.map(entry => `
-                <div class="log-entry">
-                    <span class="log-time">[${entry.time}]</span>
-                    <span class="log-message log-${entry.type}">${escapeHtml(entry.message)}</span>
-                </div>
-            `).join('');
-            
-            logContainer.innerHTML = html || '<div class="log-entry"><span class="log-time">[--:--]</span><span class="log-message log-info">No logs</span></div>';
-            
-            // Auto-scroll if not collapsed
-            if (!logsCollapsed) {
-                logContainer.scrollTop = logContainer.scrollHeight;
+        clearLogsBtn.onclick = () => logContainer.innerHTML = '[--:--] Ready\n';
+        
+        // Auth
+        async function testAuth() {
+            log('🔐 Authenticating...');
+            try {
+                const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+                    method: 'POST',
+                    headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: 'surf@testuser.com', password: 'Test1234!' })
+                });
+                const data = await res.json();
+                authToken = data.access_token;
+                setAuthToken(authToken);
+                log('✅ Got token: ' + authToken.slice(0, 30) + '...');
+                statusText.textContent = '🔐 Authenticated';
+            } catch (e) {
+                log('❌ Auth failed: ' + e.message);
             }
         }
         
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        // TTS callback
+        async function handleTTS(audio) {
+            log('🔊 Playing TTS...');
+            await playTTSAudio(audio);
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // LOG CONTROLS
-        // ═══════════════════════════════════════════════════════════════════
-        
-        function toggleLogs() {
-            logsCollapsed = !logsCollapsed;
-            logContainer.classList.toggle('collapsed', logsCollapsed);
-            document.getElementById('logToggle').textContent = logsCollapsed ? '▶' : '▼';
+        // Start mic
+        async function startMic() {
+            if (!authToken) {
+                log('❌ No auth token - click Test Auth first');
+                return;
+            }
+            
+            startBtn.disabled = true;
+            log('🎤 Starting mic...');
+            
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log('✅ Mic ready: ' + localStream.getAudioTracks()[0].label);
+                
+                // Load VAD
+                await loadSileroVAD();
+                
+                // Try WebRTC
+                log('📡 Trying WebRTC...');
+                const webrtcOk = await connectWebRTC(authToken, localStream, {
+                    onStatusChange: (s) => { statusText.textContent = s; log('Status: ' + s); },
+                    onLog: log,
+                    onTTS: handleTTS,
+                    onTranscript: (t) => log('📝 ' + t),
+                    onResponse: (r) => log('🤖 ' + r)
+                });
+                
+                if (webrtcOk) {
+                    log('✅ WebRTC connected!');
+                    startVAD(localStream, {
+                        onSpeechStart: () => log('🎙️ Speaking...'),
+                        onSpeechEnd: () => log('🔇 Silence')
+                    });
+                } else {
+                    log('⚠️ WebRTC failed, using REST');
+                    startRESTRecording(localStream);
+                    startVAD(localStream, {
+                        onSpeechStart: () => log('🎙️ Speaking...'),
+                        onSpeechEnd: () => {
+                            log('📤 Sending...');
+                            sendAccumulatedAudio({
+                                onTranscript: (t) => log('📝 ' + t),
+                                onResponse: (r) => log('🤖 ' + r),
+                                onTTS: handleTTS,
+                                onLog: log
+                            });
+                        }
+                    });
+                }
+                
+                isActive = true;
+                stopBtn.disabled = false;
+                startBtn.textContent = '🎤 Active';
+                
+            } catch (e) {
+                log('❌ Failed: ' + e.message);
+                startBtn.disabled = false;
+            }
         }
         
-        function clearLogs() {
-            logEntries = [];
-            renderLogs();
-            logCountSpan.textContent = '0';
-            addLog('Logs cleared', 'info');
+        // Stop mic
+        function stopMic() {
+            log('⏹️ Stopping...');
+            
+            disconnectWebRTC();
+            stopRESTRecording();
+            stopVAD();
+            
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+                localStream = null;
+            }
+            
+            isActive = false;
+            startBtn.textContent = '🎤 Start Mic';
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            statusText.textContent = authToken ? '🔐 Ready' : '⚡ Ready';
+            log('✅ Stopped');
         }
         
-        function exportLogs() {
-            const text = logEntries.map(e => `[${e.time}] ${e.message}`).join('\n');
-            const blob = new Blob([text], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `surf-logs-${new Date().toISOString().slice(0,19)}.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-        }
+        // Event listeners
+        testAuthBtn.onclick = testAuth;
+        startBtn.onclick = startMic;
+        stopBtn.onclick = stopMic;
         
-        // ═══════════════════════════════════════════════════════════════════
-        // LISTEN FOR MESSAGES FROM SANDBOX
-        // ═══════════════════════════════════════════════════════════════════
-        
-        window.addEventListener('message', (event) => {
-            const msg = event.data;
-            
-            // Status updates
-            if (msg.type === 'status') {
-                statusEl.textContent = `⚡ ${msg.text}`;
-            }
-            
-            // Streaming mode
-            if (msg.type === 'streaming') {
-                modeBadge.textContent = msg.mode === 'sfu' ? 'SFU' : 'REST';
-                modeBadge.className = `mode-badge mode-${msg.mode}`;
-                debugInfo.textContent = `Streaming via ${msg.mode.toUpperCase()}`;
-            }
-            
-            // Disconnected
-            if (msg.type === 'disconnected') {
-                modeBadge.textContent = '';
-                debugInfo.textContent = 'Disconnected';
-            }
-            
-            // Sandbox ready
-            if (msg.type === 'sandbox_ready') {
-                debugInfo.textContent = 'Sandbox ready - Waiting for connection';
-                addLog('✅ Sandbox ready', 'success');
-            }
-            
-            // Log messages from sandbox
-            if (msg.type === 'log') {
-                addLog(msg.message, msg.level || 'info');
-            }
-            
-            // Transcript
-            if (msg.type === 'transcript') {
-                addLog('📝 ' + msg.text, 'transcript');
-            }
-            
-            // AI Response
-            if (msg.type === 'response') {
-                addLog('🤖 ' + msg.text, 'response');
-            }
-            
-            // TTS playing
-            if (msg.type === 'tts_playing') {
-                addLog('🔊 Playing TTS', 'success');
-            }
-            
-            // VAD status
-            if (msg.type === 'vad') {
-                addLog(msg.speaking ? '🎤 Speaking detected' : '🔇 Silence detected', 'info');
-            }
-            
-            // Auth success
-            if (msg.type === 'auth_success') {
-                addLog(`✅ Authenticated as ${msg.userId?.slice(0, 8)}...`, 'success');
-            }
-            
-            // Auth error
-            if (msg.type === 'auth_error') {
-                addLog('❌ Auth failed: ' + msg.error, 'error');
-            }
-            
-            // General error
-            if (msg.type === 'error') {
-                addLog('❌ ' + msg.message, 'error');
-            }
-            
-            // Token received
-            if (msg.type === 'token_received') {
-                addLog('🔐 Auth token received', 'success');
-            }
-        });
-        
-        // Initial log
-        addLog('Sandbox initializing...', 'info');
+        // Init
+        log('🌊 Sandbox ready');
+        window.testAuth = testAuth;
+        window.startMic = startMic;
     </script>
 </body>
 </html>
