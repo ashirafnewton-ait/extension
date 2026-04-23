@@ -5,29 +5,120 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Surf Voice Sandbox</title>
     <style>
-        body {
+        * {
             margin: 0;
             padding: 0;
-            background: #0a0f0f;
+            box-sizing: border-box;
         }
-        #status {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0f0f;
             color: #00ff9d;
-            font-family: monospace;
-            font-size: 12px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #00ffcc;
+            text-shadow: 0 0 10px rgba(0, 255, 204, 0.3);
+        }
+        
+        #status {
+            font-size: 14px;
+            padding: 10px 20px;
+            background: #0d1117;
+            border: 1px solid #1a2332;
+            border-radius: 20px;
+            display: inline-block;
+            margin-top: 20px;
+        }
+        
+        .mode-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            margin-left: 10px;
+            background: #1a2332;
+        }
+        
+        .mode-sfu { color: #00ffcc; }
+        .mode-rest { color: #ffaa00; }
+        
+        .debug-info {
+            margin-top: 30px;
+            font-size: 11px;
             opacity: 0.5;
         }
     </style>
-    <!-- Libraries hosted on same domain -->
-    <script src="socket.io.min.js"></script>
-    <script src="mediasoup-client.bundle.js"></script>
-    <!-- ONNX Runtime for Silero VAD -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js"></script>
+    
+    <!-- Core Libraries -->
+    <script src="lib/socket.io.min.js"></script>
+    <script src="lib/mediasoup-client.bundle.js"></script>
 </head>
 <body>
-    <div id="status">⚡ Sandbox Ready</div>
-    <script src="webrtc-handler.js"></script>
+    <div class="container">
+        <h1>🌊 Surf Voice Sandbox</h1>
+        
+        <div id="status">
+            ⚡ Initializing...
+            <span id="modeBadge" class="mode-badge"></span>
+        </div>
+        
+        <div class="debug-info" id="debugInfo">
+            Ready for connection
+        </div>
+    </div>
+
+    <!-- Load Sandbox Modules -->
+    <script type="module">
+        // Import main controller
+        import './sandbox/sandbox-main.js';
+        
+        // Update UI based on sandbox state
+        const statusEl = document.getElementById('status');
+        const modeBadge = document.getElementById('modeBadge');
+        const debugInfo = document.getElementById('debugInfo');
+        
+        // Listen for status updates from sandbox
+        window.addEventListener('message', (event) => {
+            const msg = event.data;
+            
+            if (msg.type === 'status') {
+                const statusText = statusEl.childNodes[0] || document.createTextNode('');
+                statusText.textContent = `⚡ ${msg.text}`;
+                if (!statusEl.contains(statusText)) {
+                    statusEl.insertBefore(statusText, modeBadge);
+                }
+            }
+            
+            if (msg.type === 'streaming') {
+                modeBadge.textContent = msg.mode === 'sfu' ? 'SFU' : 'REST';
+                modeBadge.className = `mode-badge mode-${msg.mode}`;
+                debugInfo.textContent = `Streaming via ${msg.mode.toUpperCase()}`;
+            }
+            
+            if (msg.type === 'disconnected') {
+                modeBadge.textContent = '';
+                debugInfo.textContent = 'Disconnected';
+            }
+            
+            if (msg.type === 'sandbox_ready') {
+                debugInfo.textContent = 'Sandbox ready - Waiting for connection';
+            }
+        });
+        
+        console.log('🌊 Surf Voice Sandbox loaded');
+    </script>
 </body>
 </html>
