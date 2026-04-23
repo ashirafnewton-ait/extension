@@ -24,7 +24,6 @@ import {
     sendVADStatus,
     sendError,
     sendDisconnected,
-    sendTokenReceived,
     sendNotesUpdated,
     sendSettingsUpdated,
     sendChatResponse,
@@ -125,6 +124,10 @@ async function startMic() {
         return;
     }
 
+    // ✅ ENSURE TOKEN IS SET IN REST CLIENT BEFORE ANYTHING
+    setRestAuthToken(token);
+    sendLog('🔐 Token set for REST client', 'info');
+
     sendLog('🚀 Starting mic...', 'info');
 
     try {
@@ -137,9 +140,7 @@ async function startMic() {
         });
 
         sendLog('🎤 Mic: ' + localStream.getAudioTracks()[0].label, 'success');
-
-        // ✅ Skip WebRTC, use REST directly
-        sendLog('⚡ Using REST mode (WebRTC RTP unavailable on this platform)', 'info');
+        sendLog('⚡ Using REST mode', 'info');
         await startRESTMode();
 
     } catch (e) {
@@ -188,15 +189,6 @@ function setVoice(voice) {
     selectedVoice = voice;
     setRestVoice(voice);
     sendLog('Voice: ' + voice, 'info');
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// HANDLE TOKEN UPDATE
-// ═══════════════════════════════════════════════════════════════════
-
-function handleTokenUpdate(token) {
-    sendLog('🔐 Token updated', 'info');
-    setRestAuthToken(token);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -287,11 +279,15 @@ async function init() {
             isActive,
             currentMode,
             vadReady: isVADReady(),
-            tokenValid: isTokenValid(),
-            webrtcConnected: isWebRTCConnected()
+            tokenValid: isTokenValid()
         });
     });
-    onMessage('token_updated', (msg) => handleTokenUpdate(msg.token));
+
+    // ✅ Set REST token when received from extension
+    onMessage('auth_token', (msg) => {
+        sendLog('🔐 REST token received from extension', 'info');
+        setRestAuthToken(msg.token);
+    });
 
     // Response handlers
     onMessage('transcribe', handleTranscribe);
@@ -304,11 +300,11 @@ async function init() {
     onMessage('start_call', handleStartCall);
     onMessage('end_call', handleEndCall);
 
-    // Set REST auth token when received
+    // ✅ Set REST auth token if already available
     const token = getAuthToken();
     if (token) {
         setRestAuthToken(token);
-        sendLog('✅ Token available', 'success');
+        sendLog('✅ REST token available', 'success');
     } else {
         sendLog('⏳ Waiting for auth token...', 'warn');
     }
