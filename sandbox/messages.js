@@ -67,6 +67,36 @@ function sendTokenReceived() {
     postMessage({ type: 'token_received' });
 }
 
+// ✅ NEW: Notes responses
+function sendNotesUpdated(notes) {
+    postMessage({ type: 'notes_updated', notes: notes });
+}
+
+// ✅ NEW: Settings responses
+function sendSettingsUpdated(settings) {
+    postMessage({ type: 'settings_updated', settings: settings });
+}
+
+// ✅ NEW: Chat response
+function sendChatResponse(text) {
+    postMessage({ type: 'chat_response', text: text });
+}
+
+// ✅ NEW: Call status
+function sendCallStatus(status, data = {}) {
+    postMessage({ type: 'call_status', status: status, ...data });
+}
+
+// ✅ NEW: Quiz response
+function sendQuizResponse(quiz) {
+    postMessage({ type: 'quiz_response', quiz: quiz });
+}
+
+// ✅ NEW: Summary response
+function sendSummaryResponse(summary) {
+    postMessage({ type: 'summary_response', summary: summary });
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // RECEIVE MESSAGES FROM EXTENSION
 // ═══════════════════════════════════════════════════════════════════
@@ -98,7 +128,10 @@ window.addEventListener('message', (event) => {
     if (handler) {
         handler(msg);
     } else {
-        sendLog(`📨 Received: ${msg.type}`);
+        // Only log unknown types for debugging, skip log messages
+        if (msg.type !== 'log') {
+            sendLog(`📨 Received: ${msg.type}`);
+        }
     }
 });
 
@@ -127,6 +160,12 @@ export {
     sendError,
     sendDisconnected,
     sendTokenReceived,
+    sendNotesUpdated,
+    sendSettingsUpdated,
+    sendChatResponse,
+    sendCallStatus,
+    sendQuizResponse,
+    sendSummaryResponse,
     onMessage,
     getAuthToken,
     isReady,
