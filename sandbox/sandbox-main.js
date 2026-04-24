@@ -5,7 +5,6 @@
 import { loadSileroVAD, startVAD, stopVAD, isVADReady, enableDebug } from './vad.js';
 import { playTTSAudio, clearTTSQueue } from './tts.js';
 import {
-    sendAccumulatedAudioSocket,
     setAuthToken as setRestAuthToken,
     setVoice as setRestVoice,
     sendAccumulatedAudio,
@@ -81,7 +80,7 @@ async function startRESTMode() {
                 onSpeechStart: () => sendVADStatus(true),
                 onSpeechEnd: () => {
                     sendVADStatus(false);
-                    sendAccumulatedAudioSocket({
+                    sendAccumulatedAudio({
                         onTranscript: sendTranscript,
                         onResponse: sendResponse,
                         onTTS: handleTTS,
@@ -184,7 +183,7 @@ function stopMic() {
     // If PTT mode, send accumulated audio before stopping
     if (currentMode === 'ptt') {
         sendLog('📤 PTT: sending accumulated audio', 'info');
-        sendAccumulatedAudioSocket({
+        sendAccumulatedAudio({
             onTranscript: sendTranscript,
             onResponse: sendResponse,
             onTTS: handleTTS,
