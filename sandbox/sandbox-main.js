@@ -86,6 +86,10 @@ async function startRESTMode() {
                         onTTS: handleTTS,
                         onLog: sendLog
                     });
+                },
+                onAudioData: (data, isTalking) => {
+                    // Required callback - VAD needs this
+                    // Energy visualization could go here
                 }
             });
         } else {
