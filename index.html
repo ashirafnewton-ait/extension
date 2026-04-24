@@ -53,7 +53,12 @@
     <!-- <script src="lib/mediasoup-client.bundle.js"></script> -->
     
     <!-- Main sandbox entry point -->
-    <script type="module" src="sandbox/sandbox-main.js"></script>
+    <script type="module">
+    import { MicVAD } from 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js';
+    window.MicVAD = MicVAD;
+    console.log('[VAD] MicVAD loaded');
+</script>
+<script type="module" src="sandbox/sandbox-main.js"></script>
     
     <!-- Minimal inline status updater -->
     <script>
