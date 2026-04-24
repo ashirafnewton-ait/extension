@@ -106,6 +106,38 @@ function setVoice(voice) {
 // SEND AUDIO
 // ═══════════════════════════════════════════════════════════════════
 
+function sendAccumulatedAudioSocket(callbacks) {
+    const { onTranscript, onResponse, onTTS, onLog } = callbacks;
+    if (audioBuffer.length === 0) return;
+    const blob = new Blob(audioBuffer, { type: 'audio/webm' });
+    audioBuffer = [];
+    
+    const socket = window.surfSocket;
+    if (socket && socket.connected) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            socket.emit('voice', {
+                audio: reader.result,
+                voice: selectedVoice,
+                token: authToken
+            });
+        };
+        reader.readAsArrayBuffer(blob);
+        if (onLog) onLog('📤 Sent via Socket.io', 'info');
+    } else {
+        // Fallback to REST
+        sendChunkToREST(blob, callbacks);
+    }
+    
+    // Listen for responses
+    if (socket && !socket._listening) {
+        socket._listening = true;
+        socket.on('transcript', (data) => { if (onTranscript) onTranscript(data.text); });
+        socket.on('response', (data) => { if (onResponse) onResponse(data.text); });
+        socket.on('tts', (data) => { if (onTTS) onTTS(data.audio); });
+    }
+}
+
 function sendAccumulatedAudio(callbacks) {
     const { onTranscript, onResponse, onTTS, onLog } = callbacks;
     
@@ -210,6 +242,7 @@ function isRecording() {
 }
 
 export { 
+    sendAccumulatedAudioSocket,
     setAuthToken,
     setVoice,
     sendAccumulatedAudio, 
