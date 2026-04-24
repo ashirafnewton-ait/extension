@@ -131,6 +131,10 @@ function sendAccumulatedAudioSocket(callbacks) {
         });
     }
     
+    if (blob.size < 2000) {
+        if (onLog) onLog('📤 Skipped (silence)', 'info');
+        return;
+    }
     if (socket && socket.connected) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -143,8 +147,10 @@ function sendAccumulatedAudioSocket(callbacks) {
         reader.readAsArrayBuffer(blob);
         if (onLog) onLog('📤 Sent via Socket.io', 'info');
     } else {
-        sendChunkToREST(blob, callbacks);
-        if (onLog) onLog('📤 Sent via REST (fallback)', 'warn');
+        if (blob.size >= 2000) {
+            sendChunkToREST(blob, callbacks);
+            if (onLog) onLog('📤 Sent via REST (fallback)', 'warn');
+        }
     }
 }
 
