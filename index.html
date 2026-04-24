@@ -57,7 +57,12 @@
     
     <!-- Minimal inline status updater -->
     <script>
-        window.addEventListener('message', (e) => {
+        // Reset VAD state (called when lock releases)
+    window.resetVADState = function() {
+        console.log('[VAD] State reset via window');
+    };
+    
+    window.addEventListener('message', (e) => {
             if (e.data.type === 'status') {
                 document.getElementById('status-text').textContent = e.data.text;
             }
