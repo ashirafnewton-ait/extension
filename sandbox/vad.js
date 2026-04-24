@@ -11,7 +11,7 @@ let isSpeaking = false;
 let silenceTimer = null;
 let animationFrame = null;
 
-const SILENCE_THRESHOLD = 1.5; // seconds
+const SILENCE_THRESHOLD = 1.0; // seconds (faster real-time response)
 
 // Debug logging (can be enabled from extension)
 let debugEnabled = false;
@@ -137,7 +137,11 @@ function startVAD(stream, callbacks) {
             debugLog('VAD status', { isTalking, isSpeaking });
         }
         
-        if (onAudioData) onAudioData(dataArray, isTalking);
+        if (onAudioData) {
+            onAudioData(dataArray, isTalking);
+        } else {
+            debugLog('WARNING: onAudioData is not set!');
+        }
 
         if (isTalking && !isSpeaking) {
             isSpeaking = true;
@@ -153,8 +157,13 @@ function startVAD(stream, callbacks) {
                 silenceTimer = setTimeout(() => {
                     isSpeaking = false;
                     silenceTimer = null;
-                    debugLog('Speech ended (silence timeout)');
-                    if (onSpeechEnd) onSpeechEnd();
+                    debugLog('Speech ended (silence timeout ' + SILENCE_THRESHOLD + 's)');
+                    if (onSpeechEnd) {
+                        debugLog('Calling onSpeechEnd callback');
+                        onSpeechEnd();
+                    } else {
+                        debugLog('WARNING: onSpeechEnd is not set!');
+                    }
                 }, SILENCE_THRESHOLD * 1000);
             }
         }
