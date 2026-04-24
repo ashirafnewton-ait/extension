@@ -79,31 +79,8 @@ async function startRESTMode() {
         startRESTRecording(localStream);
 
         if (currentMode === 'vad') {
-            // VAD mode: use MicVAD for real-time speech detection
-            sendLog('⚡ VAD mode - MicVAD active', 'info');
-            
-            window.micVad = await window.MicVAD.new({
-                onSpeechStart: () => {
-                    sendVADStatus(true);
-                    clearTTSQueue();
-                    sendLog('🗣️ Speaking', 'info');
-                },
-                onSpeechEnd: (audio) => {
-                    sendVADStatus(false);
-                    if (isBusy || sendCooldown) {
-                        sendLog('⏳ Busy/cooldown, skipping', 'info');
-                        return;
-                    }
-                    isBusy = true;
-                    const wav = float32ToWav(audio, 16000);
-                    const blob = new Blob([wav], { type: 'audio/wav' });
-                    sendAudioAsSocket(blob);
-                },
-                onVADMisfire: () => {
-                    sendLog('🔇 Misfire filtered', 'info');
-                }
-            });
-            window.micVad.start();
+            // VAD mode: energy-based auto-send on silence
+            sendLog('⚡ VAD mode active', 'info');
         } else {
             // PTT mode: just record, send happens on stop_mic
             sendLog('🎤 PTT mode - send on stop', 'info');
