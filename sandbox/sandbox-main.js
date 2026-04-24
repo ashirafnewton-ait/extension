@@ -89,9 +89,14 @@ async function startRESTMode() {
                         onTranscript: sendTranscript,
                         onResponse: sendResponse,
                         onTTS: async (audio) => {
-                        await handleTTS(audio);
+                        if (audio) await handleTTS(audio);
                         isBusy = false;
                         sendLog('✅ Ready for next', 'info');
+                    },
+                    onResponse: (text) => {
+                        sendResponse(text);
+                        // Release lock after response even if no TTS
+                        setTimeout(() => { isBusy = false; sendLog('✅ Ready', 'info'); }, 3000);
                     },
                         onLog: sendLog
                     });
@@ -196,9 +201,14 @@ function stopMic() {
             onTranscript: sendTranscript,
             onResponse: sendResponse,
             onTTS: async (audio) => {
-                        await handleTTS(audio);
+                        if (audio) await handleTTS(audio);
                         isBusy = false;
                         sendLog('✅ Ready for next', 'info');
+                    },
+                    onResponse: (text) => {
+                        sendResponse(text);
+                        // Release lock after response even if no TTS
+                        setTimeout(() => { isBusy = false; sendLog('✅ Ready', 'info'); }, 3000);
                     },
             onLog: sendLog
         });
