@@ -104,7 +104,6 @@ async function startRESTMode() {
                 }
             });
             window.micVad.start();
-        }
         } else {
             // PTT mode: just record, send happens on stop_mic
             sendLog('🎤 PTT mode - send on stop', 'info');
