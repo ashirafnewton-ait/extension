@@ -113,6 +113,24 @@ function sendAccumulatedAudioSocket(callbacks) {
     audioBuffer = [];
     
     const socket = window.surfSocket;
+    
+    // Setup listeners once
+    if (socket && !socket._voiceListenersSet) {
+        socket._voiceListenersSet = true;
+        socket.on('transcript', (data) => {
+            console.log('[Socket] transcript:', data.text);
+            if (onTranscript) onTranscript(data.text);
+        });
+        socket.on('response', (data) => {
+            console.log('[Socket] response:', data.text);
+            if (onResponse) onResponse(data.text);
+        });
+        socket.on('tts', (data) => {
+            console.log('[Socket] tts:', data.audio?.substring(0, 20));
+            if (onTTS) onTTS(data.audio);
+        });
+    }
+    
     if (socket && socket.connected) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -125,16 +143,8 @@ function sendAccumulatedAudioSocket(callbacks) {
         reader.readAsArrayBuffer(blob);
         if (onLog) onLog('📤 Sent via Socket.io', 'info');
     } else {
-        // Fallback to REST
         sendChunkToREST(blob, callbacks);
-    }
-    
-    // Listen for responses
-    if (socket && !socket._listening) {
-        socket._listening = true;
-        socket.on('transcript', (data) => { if (onTranscript) onTranscript(data.text); });
-        socket.on('response', (data) => { if (onResponse) onResponse(data.text); });
-        socket.on('tts', (data) => { if (onTTS) onTTS(data.audio); });
+        if (onLog) onLog('📤 Sent via REST (fallback)', 'warn');
     }
 }
 
