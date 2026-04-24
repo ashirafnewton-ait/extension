@@ -68,9 +68,12 @@
                 badge.textContent = e.data.mode?.toUpperCase() || '--';
             }
             if (e.data.type === 'disconnected') {
-                document.getElementById('status-dot').className = '';
-                document.getElementById('mode-badge').textContent = '--';
-                document.getElementById('status-text').textContent = 'Disconnected';
+                const dot = document.getElementById('status-dot');
+                const badge = document.getElementById('mode-badge');
+                if (dot) dot.className = '';
+                if (badge) badge.textContent = '--';
+                const st = document.getElementById('status-text');
+                if (st) st.textContent = 'Disconnected';
             }
         });
     </script>
