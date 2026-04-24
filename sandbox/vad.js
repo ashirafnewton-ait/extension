@@ -52,6 +52,7 @@ async function loadSileroVAD() {
         if (!window.ort) {
             const ortModule = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/esm/ort.min.js');
             ort = ortModule.default || ortModule;
+        ort.env.wasm.wasmPaths = './lib/';
             debugLog('ONNX Runtime loaded');
         } else {
             ort = window.ort;
