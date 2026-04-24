@@ -128,6 +128,7 @@ function startVAD(stream, callbacks) {
     let frameCount = 0;
 
     async function checkAudio() {
+        console.log('[VAD] checkAudio loop started, frameCount:', frameCount);
         analyser.getByteTimeDomainData(dataArray);
         
         const isTalking = await detectSpeech(dataArray);
@@ -137,10 +138,15 @@ function startVAD(stream, callbacks) {
             debugLog('VAD status', { isTalking, isSpeaking });
         }
         
+        // Always log first 10 frames for debugging
+        if (frameCount < 10 || frameCount % 100 === 0) {
+            const energy = dataArray.reduce((a, b) => a + Math.abs(b - 128), 0) / dataArray.length;
+            console.log('[VAD] frame', frameCount, 'energy:', energy.toFixed(2), 'speaking:', isTalking);
+        }
         if (onAudioData) {
             onAudioData(dataArray, isTalking);
         } else {
-            debugLog('WARNING: onAudioData is not set!');
+            console.warn('[VAD] WARNING: onAudioData callback not set!');
         }
 
         if (isTalking && !isSpeaking) {
