@@ -73,26 +73,31 @@ async function startRESTMode() {
         // Start REST recording
         startRESTRecording(localStream);
 
-        // Start VAD
-        startVAD(localStream, {
-            onSpeechStart: () => sendVADStatus(true),
-            onSpeechEnd: () => {
-                sendVADStatus(false);
-                sendAccumulatedAudio({
-                    onTranscript: sendTranscript,
-                    onResponse: sendResponse,
-                    onTTS: handleTTS,
-                    onLog: sendLog
-                });
-            }
-        });
+        if (currentMode === 'vad') {
+            // VAD mode: start VAD with auto-send on silence
+            sendLog('⚡ VAD mode - auto-send on silence', 'info');
+            startVAD(localStream, {
+                onSpeechStart: () => sendVADStatus(true),
+                onSpeechEnd: () => {
+                    sendVADStatus(false);
+                    sendAccumulatedAudio({
+                        onTranscript: sendTranscript,
+                        onResponse: sendResponse,
+                        onTTS: handleTTS,
+                        onLog: sendLog
+                    });
+                }
+            });
+        } else {
+            // PTT mode: just record, send happens on stop_mic
+            sendLog('🎤 PTT mode - send on stop', 'info');
+        }
 
         isActive = true;
-        currentMode = 'rest';
         startMicInProgress = false;
         sendStreaming('rest');
         sendStatus('REST Recording');
-        sendLog('🎤 REST mode active', 'success');
+        sendLog('🎤 ' + (currentMode === 'vad' ? 'VAD' : 'PTT') + ' mode active', 'success');
 
     } catch (e) {
         sendLog('REST mode failed: ' + e.message, 'error');
@@ -105,12 +110,13 @@ async function startRESTMode() {
 // START MIC
 // ═══════════════════════════════════════════════════════════════════
 
-async function startMic() {
+async function startMic(mode = 'vad') {
     if (startMicInProgress) {
         sendLog('⚠️ Already starting mic, ignoring duplicate', 'warn');
         return;
     }
     startMicInProgress = true;
+    currentMode = mode;
 
     const token = getAuthToken();
 
@@ -162,9 +168,21 @@ function stopMic() {
     isActive = false;
     startMicInProgress = false;
 
+    // If PTT mode, send accumulated audio before stopping
+    if (currentMode === 'ptt') {
+        sendLog('📤 PTT: sending accumulated audio', 'info');
+        sendAccumulatedAudio({
+            onTranscript: sendTranscript,
+            onResponse: sendResponse,
+            onTTS: handleTTS,
+            onLog: sendLog
+        });
+    }
+
     stopRESTRecording();
     stopVAD();
     clearTTSQueue();
+    currentMode = null;
 
     if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
@@ -263,7 +281,7 @@ async function init() {
     }
 
     // Core message handlers
-    onMessage('start_mic', startMic);
+    onMessage('start_mic', (msg) => startMic(msg.mode || 'vad'));
     onMessage('stop_mic', stopMic);
     onMessage('set_voice', (msg) => setVoice(msg.voice));
     onMessage('enable_vad_debug', () => enableDebug(true));
