@@ -131,7 +131,7 @@ function sendAccumulatedAudioSocket(callbacks) {
         });
     }
     
-    if (blob.size < 2000) {
+    if (blob.size < 4000) {
         if (onLog) onLog('📤 Skipped (silence)', 'info');
         return;
     }
