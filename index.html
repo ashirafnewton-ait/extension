@@ -53,28 +53,10 @@
     <!-- <script src="lib/mediasoup-client.bundle.js"></script> -->
     
     <!-- Main sandbox entry point -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js"></script>
-<script>
-    // Wait for ORT then load vad-web
-    window.ortReady = new Promise((resolve) => {
-        const check = setInterval(() => {
-            if (window.ort && window.ort.InferenceSession) {
-                clearInterval(check);
-                resolve();
-            }
-        }, 100);
-    });
-</script>
-<script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
-<script>
-    window.ortReady.then(() => {
-        if (window.vad && window.vad.MicVAD) {
-            window.MicVAD = window.vad.MicVAD;
-            console.log('[VAD] MicVAD loaded');
-        } else {
-            console.warn('[VAD] MicVAD not available, using fallback');
-        }
-    });
+    <script>
+    // MicVAD placeholder - will be loaded when needed
+    window.MicVAD = null;
+    console.log('[VAD] Using energy-based VAD (MicVAD CDN not compatible)');
 </script>
 <script type="module" src="sandbox/sandbox-main-v2.js"></script>
     
