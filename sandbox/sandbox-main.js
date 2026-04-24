@@ -42,6 +42,7 @@ let localStream = null;
 let currentMode = null;
 let selectedVoice = 'en-US-AriaNeural';
 let startMicInProgress = false;
+let isBusy = false; // Block sends while waiting for response
 
 let notes = [];
 let settings = {
@@ -82,10 +83,16 @@ async function startRESTMode() {
                 onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
                 onSpeechEnd: () => {
                     sendVADStatus(false);
+                    if (isBusy) { sendLog('⏳ Busy, skipping', 'info'); return; }
+                    isBusy = true;
                     sendAccumulatedAudioSocket({
                         onTranscript: sendTranscript,
                         onResponse: sendResponse,
-                        onTTS: handleTTS,
+                        onTTS: async (audio) => {
+                        await handleTTS(audio);
+                        isBusy = false;
+                        sendLog('✅ Ready for next', 'info');
+                    },
                         onLog: sendLog
                     });
                 },
@@ -188,7 +195,11 @@ function stopMic() {
         sendAccumulatedAudioSocket({
             onTranscript: sendTranscript,
             onResponse: sendResponse,
-            onTTS: handleTTS,
+            onTTS: async (audio) => {
+                        await handleTTS(audio);
+                        isBusy = false;
+                        sendLog('✅ Ready for next', 'info');
+                    },
             onLog: sendLog
         });
     }
