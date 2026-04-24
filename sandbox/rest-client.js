@@ -114,9 +114,9 @@ function sendAccumulatedAudioSocket(callbacks) {
     
     const socket = window.surfSocket;
     
-    // Setup listeners once
-    if (socket && !socket._voiceListenersSet) {
-        socket._voiceListenersSet = true;
+    // Setup listeners (re-attach each time to ensure they work)
+    if (socket) {
+        socket.off('transcript').off('response').off('tts'); // Remove old listeners
         socket.on('transcript', (data) => {
             console.log('[Socket] transcript:', data.text);
             if (onTranscript) onTranscript(data.text);
