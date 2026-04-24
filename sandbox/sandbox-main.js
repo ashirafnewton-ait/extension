@@ -84,7 +84,10 @@ async function startRESTMode() {
                 onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
                 onSpeechEnd: () => {
                     sendVADStatus(false);
-                    if (isBusy) { sendLog('⏳ Busy, skipping', 'info'); return; }
+                    if (isBusy || (typeof cooldown !== 'undefined' && cooldown)) { 
+                        sendLog('⏳ Busy/cooldown, skipping', 'info'); 
+                        return; 
+                    }
                     isBusy = true;
                     sendAccumulatedAudioSocket({
                         onTranscript: sendTranscript,
