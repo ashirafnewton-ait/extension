@@ -44,6 +44,7 @@ let currentMode = null;
 let selectedVoice = 'en-US-AriaNeural';
 let startMicInProgress = false;
 let isBusy = false; // Block sends while waiting for response
+let sendCooldown = false; // 2s cooldown after lock release
 
 let notes = [];
 let settings = {
@@ -84,7 +85,7 @@ async function startRESTMode() {
                 onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
                 onSpeechEnd: () => {
                     sendVADStatus(false);
-                    if (isBusy || (typeof cooldown !== 'undefined' && cooldown)) { 
+                    if (isBusy || sendCooldown) { 
                         sendLog('⏳ Busy/cooldown, skipping', 'info'); 
                         return; 
                     }
