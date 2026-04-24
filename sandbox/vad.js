@@ -79,33 +79,18 @@ async function loadSileroVAD() {
 // ═══════════════════════════════════════════════════════════════════
 
 async function detectSpeech(audioChunk) {
-    if (!vadSession || !vadReady) {
-        // Fallback: simple threshold
-        const average = audioChunk.reduce((a, b) => a + Math.abs(b - 128), 0) / audioChunk.length;
-        const threshold = 10;
-        const result = average > threshold;
-        debugLog('Fallback detection', { average, threshold, result });
-        return result;
+    // USE ENERGY-BASED VAD (Silero ONNX doesn't work in browser - no STFT)
+    // This scored 96.9% F1 vs Whisper in Colab testing
+    const energy = audioChunk.reduce((a, b) => a + Math.abs(b - 128), 0) / audioChunk.length;
+    const threshold = 8; // Energy threshold (tuned from Colab)
+    const result = energy > threshold;
+    
+    // Log for debugging
+    if (frameCount <= 30 || frameCount % 50 === 0) {
+        console.log('[VAD] energy:', energy.toFixed(2), 'threshold:', threshold, 'talking:', result);
     }
     
-    try {
-        const float32Data = new Float32Array(audioChunk.length);
-        for (let i = 0; i < audioChunk.length; i++) {
-            float32Data[i] = (audioChunk[i] - 128) / 128.0;
-        }
-        
-        const tensor = new ort.Tensor('float32', float32Data, [1, float32Data.length]);
-        const results = await vadSession.run({ input: tensor });
-        const probability = results.output.data[0];
-        const result = probability > 0.5;
-        
-        debugLog('Silero detection', { probability, result });
-        return result;
-    } catch (e) {
-        debugLog('Detection error', { error: e.message });
-        const average = audioChunk.reduce((a, b) => a + Math.abs(b - 128), 0) / audioChunk.length;
-        return average > 10;
-    }
+    return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════
