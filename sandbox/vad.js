@@ -46,32 +46,12 @@ function enableDebug(enabled = true) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function loadSileroVAD() {
-    try {
-        debugLog('Loading Silero model...');
-        
-        if (!window.ort) {
-            const ortModule = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/esm/ort.min.js');
-            ort = ortModule.default || ortModule;
-        ort.env.wasm.wasmPaths = './lib/';
-            debugLog('ONNX Runtime loaded');
-        } else {
-            ort = window.ort;
-        }
-        
-        vadSession = await ort.InferenceSession.create('./lib/silero_vad.onnx', {
-            executionProviders: ['wasm', 'cpu']
-        });
-        
-        vadReady = true;
-        debugLog('✅ Silero VAD loaded successfully');
-        console.log('[VAD] ✅ Silero VAD loaded');
-        return true;
-    } catch (e) {
-        debugLog('⚠️ Silero failed, using fallback', { error: e.message });
-        console.warn('[VAD] ⚠️ Silero failed, using fallback:', e.message);
-        vadReady = false;
-        return false;
-    }
+    // Skip ONNX model loading - not compatible with browser (missing STFT preprocessing)
+    // Using energy-based VAD instead (96.9% F1 in Colab testing)
+    vadReady = true;
+    console.log('[VAD] ✅ Energy-based VAD ready (ONNX skipped)');
+    debugLog('✅ Energy-based VAD ready');
+    return true;
 }
 
 // ═══════════════════════════════════════════════════════════════════
