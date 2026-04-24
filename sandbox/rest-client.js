@@ -154,6 +154,11 @@ function sendAccumulatedAudioSocket(callbacks) {
     }
 }
 
+function clearAudioBuffer() {
+    audioBuffer = [];
+    console.log('[REST] Audio buffer cleared');
+}
+
 function sendAccumulatedAudio(callbacks) {
     const { onTranscript, onResponse, onTTS, onLog } = callbacks;
     
@@ -259,6 +264,7 @@ function isRecording() {
 
 export { 
     sendAccumulatedAudioSocket,
+    clearAudioBuffer,
     setAuthToken,
     setVoice,
     sendAccumulatedAudio, 
