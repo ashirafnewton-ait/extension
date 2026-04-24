@@ -2,7 +2,7 @@
 // SANDBOX MAIN CONTROLLER
 // ═══════════════════════════════════════════════════════════════════
 
-import { loadSileroVAD, startVAD, stopVAD, isVADReady, enableDebug } from './vad.js';
+import { loadSileroVAD, startVAD, stopVAD, isVADReady, enableDebug, resetVADState } from './vad.js';
 import { playTTSAudio, clearTTSQueue } from './tts.js';
 import {
     clearAudioBuffer,
@@ -92,13 +92,13 @@ async function startRESTMode() {
                         onTTS: async (audio) => {
                         if (audio) await handleTTS(audio);
                         isBusy = false;
-                        clearAudioBuffer();
+                        clearAudioBuffer(); resetVADState();
                         sendLog('✅ Ready for next', 'info');
                     },
                     onResponse: (text) => {
                         sendResponse(text);
                         // Release lock after response even if no TTS
-                        setTimeout(() => { isBusy = false; clearAudioBuffer(); sendLog('✅ Ready', 'info'); }, 3000);
+                        setTimeout(() => { isBusy = false; clearAudioBuffer(); resetVADState(); sendLog('✅ Ready', 'info'); }, 3000);
                     },
                         onLog: sendLog
                     });
@@ -205,13 +205,13 @@ function stopMic() {
             onTTS: async (audio) => {
                         if (audio) await handleTTS(audio);
                         isBusy = false;
-                        clearAudioBuffer();
+                        clearAudioBuffer(); resetVADState();
                         sendLog('✅ Ready for next', 'info');
                     },
                     onResponse: (text) => {
                         sendResponse(text);
                         // Release lock after response even if no TTS
-                        setTimeout(() => { isBusy = false; clearAudioBuffer(); sendLog('✅ Ready', 'info'); }, 3000);
+                        setTimeout(() => { isBusy = false; clearAudioBuffer(); resetVADState(); sendLog('✅ Ready', 'info'); }, 3000);
                     },
             onLog: sendLog
         });
