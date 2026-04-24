@@ -113,7 +113,21 @@ async function detectSpeech(audioChunk) {
 // ═══════════════════════════════════════════════════════════════════
 
 function startVAD(stream, callbacks) {
-    const { onSpeechStart, onSpeechEnd, onAudioData } = callbacks;
+    console.log('[VAD] startVAD called');
+    console.log('[VAD] callbacks object:', callbacks);
+    console.log('[VAD] callbacks keys:', Object.keys(callbacks || {}));
+    
+    const { onSpeechStart, onSpeechEnd, onAudioData } = callbacks || {};
+    console.log('[VAD] onSpeechStart:', typeof onSpeechStart);
+    console.log('[VAD] onSpeechEnd:', typeof onSpeechEnd);
+    console.log('[VAD] onAudioData:', typeof onAudioData);
+    
+    if (!onSpeechEnd) {
+        console.error('[VAD] FATAL: onSpeechEnd is not provided! Auto-send will NOT work.');
+    }
+    if (!onAudioData) {
+        console.error('[VAD] FATAL: onAudioData is not provided! Frame analysis will be logged but callbacks wont fire.');
+    }
     
     debugLog('Starting VAD');
     
@@ -163,11 +177,15 @@ function startVAD(stream, callbacks) {
                 silenceTimer = setTimeout(() => {
                     isSpeaking = false;
                     silenceTimer = null;
+                    console.log('[VAD] 🔔 SILENCE TIMEOUT FIRED after ' + SILENCE_THRESHOLD + 's');
                     debugLog('Speech ended (silence timeout ' + SILENCE_THRESHOLD + 's)');
                     if (onSpeechEnd) {
+                        console.log('[VAD] Calling onSpeechEnd callback...');
                         debugLog('Calling onSpeechEnd callback');
                         onSpeechEnd();
+                        console.log('[VAD] onSpeechEnd callback completed');
                     } else {
+                        console.error('[VAD] FATAL: onSpeechEnd is STILL not set at timeout!');
                         debugLog('WARNING: onSpeechEnd is not set!');
                     }
                 }, SILENCE_THRESHOLD * 1000);
