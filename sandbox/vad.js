@@ -62,7 +62,7 @@ async function detectSpeech(audioChunk) {
     // USE ENERGY-BASED VAD (Silero ONNX doesn't work in browser - no STFT)
     // This scored 96.9% F1 vs Whisper in Colab testing
     const energy = audioChunk.reduce((a, b) => a + Math.abs(b - 128), 0) / audioChunk.length;
-    const threshold = 8; // Energy threshold (tuned from Colab)
+    const threshold = 3; // Energy threshold (tuned from Colab)
     const result = energy > threshold;
     return result;
 }
