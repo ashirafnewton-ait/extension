@@ -283,6 +283,15 @@ function handleEndCall(msg) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function init() {
+    // Connect to Gateway via Socket.io for real-time voice
+    const socket = io('https://surf-gateway.onrender.com', {
+        transports: ['websocket', 'polling']
+    });
+    socket.on('connect', () => {
+        sendLog('🔌 Socket.io connected', 'success');
+        window.surfSocket = socket;
+    });
+    socket.on('disconnect', () => sendLog('🔌 Socket.io disconnected', 'warn'));
     sendLog('🔄 Initializing sandbox...', 'info');
 
     try {
