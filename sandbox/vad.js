@@ -174,7 +174,14 @@ function resetVADState() {
     console.log('[VAD] State reset');
 }
 
+function resetVADState() {
+    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+    isSpeaking = false;
+    console.log('[VAD] State reset');
+}
+
 // Expose debug control to window
+window.resetVAD = resetVADState;
 window.resetVAD = resetVADState;
 window.VADDebug = {
     enable: () => enableDebug(true),
