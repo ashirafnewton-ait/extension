@@ -11,7 +11,7 @@ let isSpeaking = false;
 let silenceTimer = null;
 let animationFrame = null;
 
-const SILENCE_THRESHOLD = 1.0; // seconds (faster real-time response)
+const SILENCE_THRESHOLD = 2.0; // seconds (faster real-time response)
 
 // Debug logging (can be enabled from extension)
 let debugEnabled = false;
