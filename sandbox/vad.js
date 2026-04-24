@@ -64,12 +64,6 @@ async function detectSpeech(audioChunk) {
     const energy = audioChunk.reduce((a, b) => a + Math.abs(b - 128), 0) / audioChunk.length;
     const threshold = 8; // Energy threshold (tuned from Colab)
     const result = energy > threshold;
-    
-    // Log for debugging
-    if (frameCount <= 30 || frameCount % 50 === 0) {
-        console.log('[VAD] energy:', energy.toFixed(2), 'threshold:', threshold, 'talking:', result);
-    }
-    
     return result;
 }
 
