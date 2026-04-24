@@ -142,66 +142,56 @@ function startVAD(stream, callbacks) {
     let frameCount = 0;
 
     async function checkAudio() {
-        console.log('[VAD] checkAudio loop started, frameCount:', frameCount);
-        analyser.getByteTimeDomainData(dataArray);
-        
-        const isTalking = await detectSpeech(dataArray);
-        
-        frameCount++;
-        if (frameCount % 30 === 0) {
-            debugLog('VAD status', { isTalking, isSpeaking });
-        }
-        
-        // Always log first 10 frames for debugging
-        if (frameCount < 10 || frameCount % 100 === 0) {
-            const energy = dataArray.reduce((a, b) => a + Math.abs(b - 128), 0) / dataArray.length;
-            console.log('[VAD] frame', frameCount, 'energy:', energy.toFixed(2), 'speaking:', isTalking);
-        }
-        if (onAudioData) {
-            onAudioData(dataArray, isTalking);
-        } else {
-            console.warn('[VAD] WARNING: onAudioData callback not set!');
-        }
-
-        if (isTalking && !isSpeaking) {
-            isSpeaking = true;
-            debugLog('Speech started');
-            if (onSpeechStart) onSpeechStart();
-            if (silenceTimer) {
-                clearTimeout(silenceTimer);
-                silenceTimer = null;
+        try {
+            analyser.getByteTimeDomainData(dataArray);
+            
+            const isTalking = await detectSpeech(dataArray);
+            
+            frameCount++;
+            
+            // Always log first 20 frames and every 50th thereafter
+            if (frameCount <= 20 || frameCount % 50 === 0) {
+                const energy = dataArray.reduce((a, b) => a + Math.abs(b - 128), 0) / dataArray.length;
+                console.log('[VAD] frame', frameCount, 'energy:', energy.toFixed(2), 'talking:', isTalking, 'speaking:', isSpeaking);
             }
-        } else if (!isTalking && isSpeaking) {
-            if (!silenceTimer) {
-                debugLog(`Silence detected, waiting ${SILENCE_THRESHOLD}s`);
-                silenceTimer = setTimeout(() => {
-                    isSpeaking = false;
-                    silenceTimer = null;
-                    console.log('[VAD] 🔔 SILENCE TIMEOUT FIRED after ' + SILENCE_THRESHOLD + 's');
-                    debugLog('Speech ended (silence timeout ' + SILENCE_THRESHOLD + 's)');
-                    if (onSpeechEnd) {
-                        console.log('[VAD] Calling onSpeechEnd callback...');
-                        debugLog('Calling onSpeechEnd callback');
-                        onSpeechEnd();
-                        console.log('[VAD] onSpeechEnd callback completed');
-                    } else {
-                        console.error('[VAD] FATAL: onSpeechEnd is STILL not set at timeout!');
-                        debugLog('WARNING: onSpeechEnd is not set!');
-                    }
-                }, SILENCE_THRESHOLD * 1000);
+            
+            if (onAudioData) {
+                onAudioData(dataArray, isTalking);
             }
-        }
 
-        animationFrame = requestAnimationFrame(checkAudio);
+            if (isTalking && !isSpeaking) {
+                isSpeaking = true;
+                console.log('[VAD] 🗣️ Speech STARTED');
+                if (onSpeechStart) onSpeechStart();
+                if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+            } else if (!isTalking && isSpeaking) {
+                if (!silenceTimer) {
+                    console.log('[VAD] 🔇 Silence detected, timer starting...');
+                    silenceTimer = setTimeout(() => {
+                        isSpeaking = false;
+                        silenceTimer = null;
+                        console.log('[VAD] 🔔 SILENCE TIMEOUT — sending audio');
+                        if (onSpeechEnd) {
+                            onSpeechEnd();
+                        } else {
+                            console.error('[VAD] FATAL: onSpeechEnd missing at timeout!');
+                        }
+                    }, SILENCE_THRESHOLD * 1000);
+                }
+            }
+        } catch (e) {
+            console.error('[VAD] checkAudio error:', e.message, e.stack);
+        }
     }
 
     checkAudio();
+    animationFrame = setInterval(checkAudio, 50); // Run every 50ms
 }
 
 function stopVAD() {
     debugLog('Stopping VAD');
     if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
+        clearInterval(animationFrame);
         animationFrame = null;
     }
     if (audioContext) {
