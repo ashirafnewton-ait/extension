@@ -54,9 +54,9 @@
     
     <!-- Main sandbox entry point -->
     <script type="module">
-    import { MicVAD } from 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js';
-    window.MicVAD = MicVAD;
-    console.log('[VAD] MicVAD loaded');
+    import vadWeb from 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js';
+    window.MicVAD = vadWeb.MicVAD || vadWeb;
+    console.log('[VAD] MicVAD loaded', window.MicVAD);
 </script>
 <script type="module" src="sandbox/sandbox-main.js"></script>
     
