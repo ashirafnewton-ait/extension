@@ -79,40 +79,32 @@ async function startRESTMode() {
         startRESTRecording(localStream);
 
         if (currentMode === 'vad') {
-            // VAD mode: start VAD with auto-send on silence
-            sendLog('⚡ VAD mode - auto-send on silence', 'info');
-            // MicVAD handles this instead
-            // // startVAD removed, {
-                onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
-                onSpeechEnd: () => {
+            // VAD mode: use MicVAD for real-time speech detection
+            sendLog('⚡ VAD mode - MicVAD active', 'info');
+            
+            window.micVad = await window.MicVAD.new({
+                onSpeechStart: () => {
+                    sendVADStatus(true);
+                    clearTTSQueue();
+                    sendLog('🗣️ Speaking', 'info');
+                },
+                onSpeechEnd: (audio) => {
                     sendVADStatus(false);
-                    if (isBusy || sendCooldown) { 
-                        sendLog('⏳ Busy/cooldown, skipping', 'info'); 
-                        return; 
+                    if (isBusy || sendCooldown) {
+                        sendLog('⏳ Busy/cooldown, skipping', 'info');
+                        return;
                     }
                     isBusy = true;
-                    sendAccumulatedAudioSocket({
-                        onTranscript: sendTranscript,
-                        onResponse: sendResponse,
-                        onTTS: async (audio) => {
-                        if (audio) await handleTTS(audio);
-                        isBusy = false;
-                        clearAudioBuffer(); if (window.resetVADState) window.resetVADState();
-                        sendLog('✅ Ready for next', 'info');
-                    },
-                    onResponse: (text) => {
-                        sendResponse(text);
-                        // Release lock after response even if no TTS
-                        setTimeout(() => { isBusy = false; clearAudioBuffer(); if (window.resetVADState) window.resetVADState(); sendLog('✅ Ready', 'info'); }, 3000);
-                    },
-                        onLog: sendLog
-                    });
+                    const wav = float32ToWav(audio, 16000);
+                    const blob = new Blob([wav], { type: 'audio/wav' });
+                    sendAudioAsSocket(blob);
                 },
-                onAudioData: (data, isTalking) => {
-                    // Required callback - VAD needs this
-                    // Energy visualization could go here
+                onVADMisfire: () => {
+                    sendLog('🔇 Misfire filtered', 'info');
                 }
             });
+            window.micVad.start();
+        }
         } else {
             // PTT mode: just record, send happens on stop_mic
             sendLog('🎤 PTT mode - send on stop', 'info');
