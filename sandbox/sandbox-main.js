@@ -42,8 +42,7 @@ let localStream = null;
 let currentMode = null;
 let selectedVoice = 'en-US-AriaNeural';
 let startMicInProgress = false;
-let waitingForResponse = false; // Response lock
-let queuedAudio = null; // Queued audio while waiting
+
 let notes = [];
 let settings = {
     theme: 'dark',
@@ -80,32 +79,13 @@ async function startRESTMode() {
             // VAD mode: start VAD with auto-send on silence
             sendLog('⚡ VAD mode - auto-send on silence', 'info');
             startVAD(localStream, {
-                onSpeechStart: () => {
-                    sendVADStatus(true);
-                    // INTERRUPT: Stop TTS if AI is speaking
-                    if (waitingForResponse) {
-                        sendLog('⚡ Interrupted!', 'info');
-                        clearTTSQueue();
-                        waitingForResponse = false;
-                    }
-                },
+                onSpeechStart: () => sendVADStatus(true),
                 onSpeechEnd: () => {
                     sendVADStatus(false);
-                    // If waiting for response, queue this audio
-                    if (waitingForResponse) {
-                        sendLog('⏳ Queued (waiting for response)', 'info');
-                        return;
-                    }
-                    waitingForResponse = true;
-                    const releaseLock = () => { waitingForResponse = false; };
                     sendAccumulatedAudioSocket({
-                        onTranscript: (text) => { sendTranscript(text); },
-                        onResponse: (text) => { sendResponse(text); },
-                        onTTS: async (audio) => { 
-                            await handleTTS(audio); 
-                            releaseLock();
-                            sendLog('✅ Response complete', 'info');
-                        },
+                        onTranscript: sendTranscript,
+                        onResponse: sendResponse,
+                        onTTS: handleTTS,
                         onLog: sendLog
                     });
                 },
