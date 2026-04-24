@@ -176,6 +176,13 @@ function resetVADState() {
 
 
 
+// Expose state reset to window (has access to module scope)
+window.resetVADState = function() {
+    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+    isSpeaking = false;
+    console.log('[VAD] State reset (module scope)');
+};
+
 // Expose debug control to window
 window.resetVAD = resetVADState;
 window.resetVAD = resetVADState;
