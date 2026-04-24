@@ -134,13 +134,21 @@ async function startMic(mode = 'vad') {
     sendLog('🚀 Starting mic...', 'info');
 
     try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
+        // First try to get mic access
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+        } catch (micError) {
+            sendLog('❌ Mic access denied: ' + micError.message, 'error');
+            sendError('Microphone access denied. Click on the page first, then try again.');
+            startMicInProgress = false;
+            return;
+        }
 
         sendLog('🎤 Mic: ' + localStream.getAudioTracks()[0].label, 'success');
         sendLog('⚡ Using REST mode', 'info');
@@ -340,6 +348,18 @@ async function init() {
         resetState: () => {
             startMicInProgress = false;
             resetTokenState();
+        },
+        // Pre-request mic permission (must be called from a click)
+        requestMic: async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(t => t.stop());
+                sendLog('🎤 Mic permission granted', 'success');
+                return true;
+            } catch (e) {
+                sendLog('❌ Mic permission denied', 'error');
+                return false;
+            }
         }
     };
 }
