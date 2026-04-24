@@ -82,7 +82,7 @@ async function startRESTMode() {
             // VAD mode: start VAD with auto-send on silence
             sendLog('⚡ VAD mode - auto-send on silence', 'info');
             // MicVAD handles this instead
-            // startVAD(localStream, {
+            // // startVAD removed, {
                 onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
                 onSpeechEnd: () => {
                     sendVADStatus(false);
