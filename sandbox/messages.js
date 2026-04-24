@@ -139,8 +139,33 @@ window.addEventListener('message', (event) => {
 // INIT
 // ═══════════════════════════════════════════════════════════════════
 
+// Socket.io response listeners
+function setupSocketListeners() {
+    const socket = window.surfSocket;
+    if (!socket) return;
+    socket.on('transcript', (data) => {
+        console.log('[Socket] transcript:', data.text);
+        sendTranscript(data.text);
+    });
+    socket.on('response', (data) => {
+        console.log('[Socket] response:', data.text);
+        sendResponse(data.text);
+    });
+    socket.on('tts', (data) => {
+        console.log('[Socket] tts audio received');
+        postMessage({ type: 'tts_audio', audio: data.audio });
+    });
+}
+
 function markReady() {
     isSandboxReady = true;
+    // Setup socket listeners if socket is connected
+    setTimeout(() => {
+        if (window.surfSocket && window.surfSocket.connected) {
+            setupSocketListeners();
+            sendLog('Socket listeners ready', 'info');
+        }
+    }, 500);
     sendLog('Sandbox ready');
     sendStatus('Ready');
     postMessage({ type: 'sandbox_ready' });
@@ -153,6 +178,7 @@ function resetTokenState() {
 }
 
 export {
+    setupSocketListeners,
     postMessage,
     sendStatus,
     sendLog,
