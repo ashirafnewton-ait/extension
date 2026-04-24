@@ -79,7 +79,7 @@ async function startRESTMode() {
             // VAD mode: start VAD with auto-send on silence
             sendLog('⚡ VAD mode - auto-send on silence', 'info');
             startVAD(localStream, {
-                onSpeechStart: () => sendVADStatus(true),
+                onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
                 onSpeechEnd: () => {
                     sendVADStatus(false);
                     sendAccumulatedAudioSocket({
