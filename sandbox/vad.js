@@ -189,4 +189,4 @@ window.VADDebug = {
     status: () => ({ vadReady, isSpeaking, debugEnabled })
 };
 
-export { loadSileroVAD, startVAD, stopVAD, isVADReady, enableDebug };
+export { loadSileroVAD, startVAD, stopVAD, isVADReady, enableDebug, resetVADState };
