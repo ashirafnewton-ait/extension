@@ -138,9 +138,10 @@ function sendAccumulatedAudioSocket(callbacks) {
     if (socket && socket.connected) {
         const reader = new FileReader();
         reader.onload = () => {
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(reader.result)));
             socket.emit('voice', {
                 mode: window.currentVADMode || 'vad',
-                audio: reader.result,
+                audio: base64,
                 voice: selectedVoice,
                 token: authToken
             });
