@@ -81,6 +81,32 @@ async function startRESTMode() {
         if (currentMode === 'vad') {
             // VAD mode: energy-based auto-send on silence
             sendLog('⚡ VAD mode active', 'info');
+            startVAD(localStream, {
+                onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
+                onSpeechEnd: () => {
+                    sendVADStatus(false);
+                    if (isBusy || sendCooldown) {
+                        sendLog('⏳ Busy/cooldown, skipping', 'info');
+                        return;
+                    }
+                    isBusy = true;
+                    sendAccumulatedAudioSocket({
+                        onTranscript: sendTranscript,
+                        onResponse: sendResponse,
+                        onTTS: async (audio) => {
+                            if (audio) await handleTTS(audio);
+                            sendCooldown = true;
+                            isBusy = false;
+                            clearAudioBuffer();
+                            if (window.resetVADState) window.resetVADState();
+                            setTimeout(() => { sendCooldown = false; }, 2000);
+                            sendLog('✅ Ready', 'info');
+                        },
+                        onLog: sendLog
+                    });
+                },
+                onAudioData: () => {}
+            });
         } else {
             // PTT mode: just record, send happens on stop_mic
             sendLog('🎤 PTT mode - send on stop', 'info');
