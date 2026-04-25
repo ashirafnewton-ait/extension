@@ -114,6 +114,7 @@ async function startRESTMode() {
 
         isActive = true;
         window.currentVADMode = currentMode;
+        window.currentVADMode = currentMode;
         startMicInProgress = false;
         sendStreaming('rest');
         sendStatus('REST Recording');
