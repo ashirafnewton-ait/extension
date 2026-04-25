@@ -16,6 +16,7 @@ import {
     refreshAuthToken
 } from './rest-client.js';
 import {
+    handleExtensionCommand,
     postMessage,
     sendStatus,
     sendLog,
@@ -378,6 +379,9 @@ async function init() {
     onMessage('start_call', handleStartCall);
     onMessage('end_call', handleEndCall);
 
+    // Extension command handler
+    onMessage('extension_command', handleExtensionCommand);
+
     // ✅ Set REST auth token if already available
     const token = getAuthToken();
     if (token) {
@@ -413,6 +417,23 @@ async function init() {
         view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     }
     return buffer;
+}
+
+// Text chat via REST
+async function sendTextToAI(text) {
+    if (!authToken || !text.trim()) return;
+    sendLog('Text: ' + text.substring(0, 40), 'info');
+    sendTranscript(text);
+    try {
+        const res = await fetch('https://surf-gateway.onrender.com/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+            body: JSON.stringify({ text, voice: selectedVoice })
+        });
+        const data = await res.json();
+        if (data.response) sendResponse(data.response);
+        if (data.audio_base64) handleTTS(data.audio_base64);
+    } catch (e) { sendLog('Text error: ' + e.message, 'error'); }
 }
 
 window.SurfSandbox = {
