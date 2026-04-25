@@ -108,6 +108,57 @@ function isReady() {
     return isSandboxReady;
 }
 
+// Extension commands
+function handleExtensionCommand(msg) {
+    switch (msg.action) {
+        case 'getVoices':
+            postMessage({ type: 'voices', voices: [
+                { id: 'en-US-AriaNeural', name: 'Aria', locale: 'en-US', gender: 'female' },
+                { id: 'en-US-GuyNeural', name: 'Guy', locale: 'en-US', gender: 'male' },
+                { id: 'en-GB-SoniaNeural', name: 'Sonia', locale: 'en-GB', gender: 'female' },
+                { id: 'en-GB-RyanNeural', name: 'Ryan', locale: 'en-GB', gender: 'male' }
+            ]});
+            break;
+        case 'getNotes':
+            postMessage({ type: 'notes_updated', notes: notes || [] });
+            break;
+        case 'saveNote':
+            if (msg.note) {
+                notes = notes || [];
+                notes.push({ id: Date.now(), text: msg.note, timestamp: new Date().toISOString() });
+            }
+            postMessage({ type: 'notes_updated', notes });
+            break;
+        case 'deleteNote':
+            notes = (notes || []).filter(n => n.id !== msg.noteId);
+            postMessage({ type: 'notes_updated', notes });
+            break;
+        case 'getSettings':
+            postMessage({ type: 'settings_updated', settings });
+            break;
+        case 'updateSettings':
+            settings = { ...settings, ...msg.settings };
+            postMessage({ type: 'settings_updated', settings });
+            break;
+        case 'scanPage':
+            // Forward to AI
+            startMic('ptt');
+            break;
+        case 'startMic':
+            startMic(msg.mode || 'ptt');
+            break;
+        case 'stopMic':
+            stopMic();
+            break;
+        case 'sendText':
+            sendTextToAI(msg.text);
+            break;
+        case 'setVoice':
+            setVoice(msg.voice);
+            break;
+    }
+}
+
 // Setup message listener
 window.addEventListener('message', (event) => {
     const msg = event.data;
