@@ -318,6 +318,12 @@ async function init() {
         socket.on('connect', () => {
             sendLog('🔌 Socket.io connected', 'success');
             window.surfSocket = socket;
+            // Authenticate immediately if we have a token
+            const token = getAuthToken();
+            if (token) {
+                socket.emit('authenticate', { token });
+                sendLog('🔌 Socket authenticated', 'info');
+            }
         });
         socket.on('connect_error', () => sendLog('Socket.io unavailable, using REST', 'warn'));
         socket.on('disconnect', () => sendLog('🔌 Socket.io disconnected', 'warn'));
