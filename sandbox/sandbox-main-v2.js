@@ -354,6 +354,11 @@ async function init() {
     onMessage('auth_token', (msg) => {
         sendLog('🔐 REST token received from extension', 'info');
         setRestAuthToken(msg.token);
+        // Authenticate socket connection
+        if (window.surfSocket && window.surfSocket.connected) {
+            window.surfSocket.emit('authenticate', { token: msg.token });
+            sendLog('🔌 Socket authenticated', 'info');
+        }
     });
 
     // Response handlers
