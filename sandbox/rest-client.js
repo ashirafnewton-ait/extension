@@ -139,6 +139,7 @@ function sendAccumulatedAudioSocket(callbacks) {
         const reader = new FileReader();
         reader.onload = () => {
             socket.emit('voice', {
+                mode: window.currentVADMode || 'vad',
                 audio: reader.result,
                 voice: selectedVoice,
                 token: authToken
