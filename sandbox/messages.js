@@ -113,16 +113,17 @@ window.addEventListener('message', (event) => {
     const msg = event.data;
 
     if (msg.type === 'auth_token') {
-        // ✅ Prevent duplicate token processing
-        if (tokenReceived) {
-            console.log('[Sandbox] Ignoring duplicate auth_token');
-            return;
-        }
+        if (tokenReceived) { console.log('[Sandbox] Ignoring duplicate auth_token'); return; }
         tokenReceived = true;
         authToken = msg.token;
         sendLog('🔐 Auth token received');
         sendTokenReceived();
         window.authToken = authToken;
+        // Authenticate socket when token arrives
+        if (window.surfSocket && window.surfSocket.connected) {
+            window.surfSocket.emit('authenticate', { token: msg.token });
+            console.log('[Sandbox] Socket authenticated');
+        }
     }
 
     const handler = messageHandlers[msg.type];
