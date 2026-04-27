@@ -230,6 +230,7 @@ function resetTokenState() {
 }
 
 export {
+    handleExtensionCommand,
     setupSocketListeners,
     postMessage,
     sendStatus,
