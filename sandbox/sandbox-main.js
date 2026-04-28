@@ -16,6 +16,7 @@ import {
     refreshAuthToken
 } from './rest-client.js';
 import {
+    handleExtensionCommand,
     postMessage,
     sendStatus,
     sendLog,
@@ -79,38 +80,42 @@ async function startRESTMode() {
         startRESTRecording(localStream);
 
         if (currentMode === 'vad') {
-            // VAD mode: use MicVAD for real-time speech detection
-            sendLog('⚡ VAD mode - MicVAD active', 'info');
-            
-            window.micVad = await window.MicVAD.new({
-                onSpeechStart: () => {
-                    sendVADStatus(true);
-                    clearTTSQueue();
-                    sendLog('🗣️ Speaking', 'info');
-                },
-                onSpeechEnd: (audio) => {
+            // VAD mode: energy-based auto-send on silence
+            sendLog('⚡ VAD mode active', 'info');
+            startVAD(localStream, {
+                onSpeechStart: () => { sendVADStatus(true); clearTTSQueue(); },
+                onSpeechEnd: () => {
                     sendVADStatus(false);
                     if (isBusy || sendCooldown) {
                         sendLog('⏳ Busy/cooldown, skipping', 'info');
                         return;
                     }
                     isBusy = true;
-                    const wav = float32ToWav(audio, 16000);
-                    const blob = new Blob([wav], { type: 'audio/wav' });
-                    sendAudioAsSocket(blob);
+                    sendAccumulatedAudioSocket({
+                        onTranscript: sendTranscript,
+                        onResponse: sendResponse,
+                        onTTS: async (audio) => {
+                            if (audio) await handleTTS(audio);
+                            sendCooldown = true;
+                            isBusy = false;
+                            clearAudioBuffer();
+                            if (window.resetVADState) window.resetVADState();
+                            setTimeout(() => { sendCooldown = false; }, 2000);
+                            sendLog('✅ Ready', 'info');
+                        },
+                        onLog: sendLog
+                    });
                 },
-                onVADMisfire: () => {
-                    sendLog('🔇 Misfire filtered', 'info');
-                }
+                onAudioData: () => {}
             });
-            window.micVad.start();
-        }
         } else {
             // PTT mode: just record, send happens on stop_mic
             sendLog('🎤 PTT mode - send on stop', 'info');
         }
 
         isActive = true;
+        window.currentVADMode = currentMode;
+        window.currentVADMode = currentMode;
         startMicInProgress = false;
         sendStreaming('rest');
         sendStatus('REST Recording');
@@ -314,6 +319,12 @@ async function init() {
         socket.on('connect', () => {
             sendLog('🔌 Socket.io connected', 'success');
             window.surfSocket = socket;
+            // Authenticate immediately if we have a token
+            const token = getAuthToken();
+            if (token) {
+                socket.emit('authenticate', { token });
+                sendLog('🔌 Socket authenticated', 'info');
+            }
         });
         socket.on('connect_error', () => sendLog('Socket.io unavailable, using REST', 'warn'));
         socket.on('disconnect', () => sendLog('🔌 Socket.io disconnected', 'warn'));
@@ -350,6 +361,11 @@ async function init() {
     onMessage('auth_token', (msg) => {
         sendLog('🔐 REST token received from extension', 'info');
         setRestAuthToken(msg.token);
+        // Authenticate socket connection
+        if (window.surfSocket && window.surfSocket.connected) {
+            window.surfSocket.emit('authenticate', { token: msg.token });
+            sendLog('🔌 Socket authenticated', 'info');
+        }
     });
 
     // Response handlers
@@ -362,6 +378,9 @@ async function init() {
     onMessage('update_settings', handleUpdateSettings);
     onMessage('start_call', handleStartCall);
     onMessage('end_call', handleEndCall);
+
+    // Extension command handler
+    onMessage('extension_command', handleExtensionCommand);
 
     // ✅ Set REST auth token if already available
     const token = getAuthToken();
@@ -398,6 +417,34 @@ async function init() {
         view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     }
     return buffer;
+}
+
+// Text chat via REST
+async function sendTextToAI(text) {
+    if (!authToken || !text.trim()) {
+        sendLog('sendTextToAI: no token or empty text', 'error');
+        return;
+    }
+    sendLog('Text: ' + text.substring(0, 40), 'info');
+    sendTranscript(text);
+    try {
+        const token = getAuthToken();
+        sendLog('Token: ' + (token ? token.substring(0, 10) + '...' : 'MISSING'), token ? 'info' : 'error');
+        
+        const res = await fetch('https://surf-gateway.onrender.com/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ text, voice: selectedVoice })
+        });
+        
+        sendLog('Gateway: ' + res.status, res.ok ? 'info' : 'error');
+        const data = await res.json();
+        
+        if (data.error) sendLog('GW Error: ' + data.error, 'error');
+        if (data.response) sendResponse(data.response);
+        else sendLog('No response from GW. Keys: ' + Object.keys(data).join(','), 'error');
+        if (data.audio_base64) handleTTS(data.audio_base64);
+    } catch (e) { sendLog('Text error: ' + e.message, 'error'); }
 }
 
 window.SurfSandbox = {
