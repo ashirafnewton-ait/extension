@@ -109,6 +109,34 @@ function isReady() {
 }
 
 // Extension commands
+async function sendTextToAI(text) {
+    if (!authToken || !text.trim()) {
+        sendLog('sendTextToAI: no token or empty text', 'error');
+        return;
+    }
+    sendLog('Text: ' + text.substring(0, 40), 'info');
+    sendTranscript(text);
+    try {
+        const token = getAuthToken();
+        sendLog('Token: ' + (token ? token.substring(0, 10) + '...' : 'MISSING'), token ? 'info' : 'error');
+        
+        const res = await fetch('https://surf-gateway.onrender.com/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ text, voice: selectedVoice })
+        });
+        
+        sendLog('Gateway: ' + res.status, res.ok ? 'info' : 'error');
+        const data = await res.json();
+        
+        if (data.error) sendLog('GW Error: ' + data.error, 'error');
+        if (data.response) sendResponse(data.response);
+        else sendLog('No response from GW. Keys: ' + Object.keys(data).join(','), 'error');
+        if (data.audio_base64) handleTTS(data.audio_base64);
+    } catch (e) { sendLog('Text error: ' + e.message, 'error'); }
+}
+
+
 function handleExtensionCommand(msg) {
     switch (msg.action) {
         case 'getVoices':
