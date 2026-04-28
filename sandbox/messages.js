@@ -123,7 +123,7 @@ async function sendTextToAI(text) {
         const res = await fetch('https://surf-gateway.onrender.com/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ text, voice: selectedVoice })
+            body: JSON.stringify({ text, voice: 'en-US-AriaNeural' })
         });
         
         sendLog('Gateway: ' + res.status, res.ok ? 'info' : 'error');
