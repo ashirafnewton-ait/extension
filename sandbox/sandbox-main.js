@@ -421,6 +421,8 @@ async function init() {
 
 // Text chat via REST
 // sendTextToAI moved to messages.js
+window.startMic = startMic;
+window.stopMic = stopMic;
 window.SurfSandbox = {
         start: startMic,
         stop: stopMic,
