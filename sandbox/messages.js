@@ -183,7 +183,7 @@ function handleExtensionCommand(msg) {
             startMic(msg.mode || 'ptt');
             break;
         case 'stopMic':
-            stopMic();
+            if (window.stopMic) window.stopMic();
             break;
         case 'sendText':
             sendTextToAI(msg.text);
