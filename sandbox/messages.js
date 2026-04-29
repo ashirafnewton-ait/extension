@@ -180,7 +180,7 @@ function handleExtensionCommand(msg) {
             startMic('ptt');
             break;
         case 'startMic':
-            startMic(msg.mode || 'ptt');
+            if (window.startMic) window.startMic(msg.mode || 'ptt');
             break;
         case 'stopMic':
             if (window.stopMic) window.stopMic();
