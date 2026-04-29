@@ -139,6 +139,11 @@ async function sendTextToAI(text) {
 
 let selectedVoice = 'en-US-AriaNeural';
 
+async function handleTTS(audioBase64) {
+    await playTTSAudio(audioBase64);
+}
+
+
 function handleExtensionCommand(msg) {
     switch (msg.action) {
         case 'getVoices':
