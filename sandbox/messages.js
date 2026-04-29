@@ -137,6 +137,8 @@ async function sendTextToAI(text) {
 }
 
 
+let selectedVoice = 'en-US-AriaNeural';
+
 function handleExtensionCommand(msg) {
     switch (msg.action) {
         case 'getVoices':
