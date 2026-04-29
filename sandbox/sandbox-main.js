@@ -36,7 +36,7 @@ import {
     getAuthToken,
     markReady,
     resetTokenState
-} from './messages-v2.js';
+} from './messages.js';
 
 // State
 let isActive = false;
